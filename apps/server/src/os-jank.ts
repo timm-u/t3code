@@ -22,7 +22,7 @@ export function fixPath(
   } = {},
 ): void {
   const platform = options.platform ?? process.platform;
-  if (platform !== "darwin" && platform !== "linux") return;
+  if (platform !== "darwin" && platform !== "linux" && platform !== "android") return;
 
   const env = options.env ?? process.env;
   const logWarning = options.logWarning ?? logPathHydrationWarning;
