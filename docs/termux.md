@@ -12,6 +12,8 @@ The main Android-specific issue is native modules. `node-pty` and `msgpackr-extr
 - Node.js 22.16+, 23.11+, or 24.10+.
 - An authenticated provider. Codex is the recommended provider on Termux.
 
+The installer defaults to `t3@nightly`, which is the same npm dist tag published by the upstream scheduled nightly release workflow. Set `T3CODE_VERSION=latest` if you prefer the latest stable npm release.
+
 ## Quick Install
 
 From Termux:
@@ -25,7 +27,7 @@ The installer:
 - installs Termux packages needed to build native npm modules;
 - installs the Termux Codex CLI fork when `codex` is missing;
 - creates `~/t3code-termux`;
-- installs `t3` with Android native build settings;
+- installs `t3@nightly` with Android native build settings;
 - adds `npm start`, `npm run serve`, and `npm run rebuild-native` helper scripts.
 
 Start T3 Code:
@@ -56,6 +58,12 @@ Project: <https://github.com/DioNanos/codex-termux>
 
 After login, T3 Code should detect `codex` on `PATH`.
 
+## OpenCode And Gemini
+
+Nightly builds include OpenCode support. Install and configure OpenCode separately, then enable the OpenCode provider in T3 Code settings.
+
+OpenCode reports the upstream providers it has connected. If your OpenCode setup is connected to Google/Gemini, those models should appear through the OpenCode provider in T3 Code.
+
 ## Manual Install
 
 Use this when you want to see every step or adapt the install directory.
@@ -71,7 +79,7 @@ mkdir -p ~/t3code-termux
 cd ~/t3code-termux
 npm init -y
 
-npm_config_android_ndk_path="$PREFIX" npm install t3@latest
+npm_config_android_ndk_path="$PREFIX" npm install t3@nightly
 npm pkg set "scripts.start=t3 start --host 127.0.0.1 --port 8787 --no-browser $HOME"
 npm start
 ```
@@ -108,6 +116,12 @@ Skip Codex installation:
 
 ```sh
 T3CODE_INSTALL_CODEX=0 sh scripts/install-termux.sh
+```
+
+Install the stable npm release instead of nightly:
+
+```sh
+T3CODE_VERSION=latest sh scripts/install-termux.sh
 ```
 
 ## Troubleshooting
