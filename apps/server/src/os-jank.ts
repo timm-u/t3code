@@ -86,7 +86,7 @@ export const expandHomePath = Effect.fn(function* (input: string) {
   if (input === "~") {
     return OS.homedir();
   }
-  if (input.startsWith("~/") || input.startsWith("\\~")) {
+  if (input.startsWith("~/") || input.startsWith("~\\")) {
     return join(OS.homedir(), input.slice(2));
   }
   return input;
