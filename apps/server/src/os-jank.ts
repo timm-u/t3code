@@ -53,7 +53,7 @@ export function fixPath(
       return;
     }
 
-    if (platform !== "darwin" && platform !== "linux") return;
+    if (platform !== "darwin" && platform !== "linux" && platform !== "android") return;
 
     let shellPath: string | undefined;
     for (const shell of listLoginShellCandidates(platform, env.SHELL, options.userShell)) {
@@ -86,7 +86,7 @@ export const expandHomePath = Effect.fn(function* (input: string) {
   if (input === "~") {
     return OS.homedir();
   }
-  if (input.startsWith("~/") || input.startsWith("~\\")) {
+  if (input.startsWith("~/") || input.startsWith("\\~")) {
     return join(OS.homedir(), input.slice(2));
   }
   return input;
