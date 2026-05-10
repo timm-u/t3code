@@ -61,6 +61,7 @@ interface PlanSidebarProps {
   timestampFormat: TimestampFormat;
   mode?: "sheet" | "sidebar";
   onClose: () => void;
+  onImplementPlanInNewThread?: () => void;
 }
 
 const PlanSidebar = memo(function PlanSidebar({
@@ -73,6 +74,7 @@ const PlanSidebar = memo(function PlanSidebar({
   timestampFormat,
   mode = "sidebar",
   onClose,
+  onImplementPlanInNewThread,
 }: PlanSidebarProps) {
   const [proposedPlanExpanded, setProposedPlanExpanded] = useState(false);
   const [isSavingToWorkspace, setIsSavingToWorkspace] = useState(false);
@@ -81,6 +83,8 @@ const PlanSidebar = memo(function PlanSidebar({
   const planMarkdown = activeProposedPlan?.planMarkdown ?? null;
   const displayedPlanMarkdown = planMarkdown ? stripDisplayedPlanMarkdown(planMarkdown) : null;
   const planTitle = planMarkdown ? proposedPlanTitle(planMarkdown) : null;
+  const isPlanActionable = activeProposedPlan !== null && activeProposedPlan.implementedAt === null;
+  const hasImplementHandler = typeof onImplementPlanInNewThread === "function";
 
   const handleCopyPlan = useCallback(() => {
     if (!planMarkdown) return;
@@ -274,6 +278,40 @@ const PlanSidebar = memo(function PlanSidebar({
           ) : null}
         </div>
       </ScrollArea>
+
+      {isPlanActionable && hasImplementHandler ? (
+        <div className="shrink-0 border-t border-border/60 px-3 py-3">
+          <div className="flex items-center justify-end">
+            <Button
+              size="sm"
+              className="rounded-l-full rounded-r-none px-4"
+              title="Implement the plan in a new thread"
+              onClick={() => void onImplementPlanInNewThread?.()}
+            >
+              Implement
+            </Button>
+            <Menu>
+              <MenuTrigger
+                render={
+                  <Button
+                    size="sm"
+                    variant="default"
+                    className="rounded-l-none rounded-r-full border-l-white/12 px-2"
+                    aria-label="Implementation actions"
+                  />
+                }
+              >
+                <ChevronDownIcon className="size-3.5" />
+              </MenuTrigger>
+              <MenuPopup align="end" side="top">
+                <MenuItem onClick={() => void onImplementPlanInNewThread?.()}>
+                  Implement in a new thread
+                </MenuItem>
+              </MenuPopup>
+            </Menu>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 });
