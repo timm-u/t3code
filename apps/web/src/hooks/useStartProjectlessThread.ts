@@ -29,7 +29,10 @@ export function useStartProjectlessThread() {
   const handleNewThread = useNewThreadHandler();
 
   return useCallback(
-    async (environmentId: EnvironmentId, options?: { readonly replace?: boolean }) => {
+    async (
+      environmentId: EnvironmentId,
+      options?: { readonly replace?: boolean; readonly openTerminal?: boolean },
+    ) => {
       const environment = environments.find(
         (candidate) => candidate.environmentId === environmentId,
       );

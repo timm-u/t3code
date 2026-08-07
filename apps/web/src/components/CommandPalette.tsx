@@ -53,6 +53,7 @@ import {
   MonitorIcon,
   CloudIcon,
   SettingsIcon,
+  SquareTerminalIcon,
   SquarePenIcon,
   TextSearchIcon,
 } from "lucide-react";
@@ -865,6 +866,10 @@ function OpenCommandPaletteDialog(props: {
   }, [environments]);
   const defaultAddProjectEnvironmentId =
     addProjectEnvironmentOptions.find((option) => option.isConnected)?.environmentId ?? null;
+  const connectedAddProjectEnvironmentOptions = useMemo(
+    () => addProjectEnvironmentOptions.filter((environment) => environment.isConnected),
+    [addProjectEnvironmentOptions],
+  );
   const wslAddProjectEnvironmentOption = useMemo(
     () =>
       addProjectEnvironmentOptions.find((option) => {
@@ -1262,6 +1267,60 @@ function OpenCommandPaletteDialog(props: {
     };
   }, [projectlessEnvironmentItems]);
 
+  const openTerminalOnEnvironment = useCallback(
+    async (environmentId: EnvironmentId) => {
+      try {
+        await startProjectlessThread(environmentId, { openTerminal: true });
+        setOpen(false);
+      } catch (cause) {
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Could not open terminal",
+            description: cause instanceof Error ? cause.message : "An unexpected error occurred.",
+          }),
+        );
+      }
+    },
+    [setOpen, startProjectlessThread],
+  );
+
+  const terminalEnvironmentItems = useMemo<CommandPaletteActionItem[]>(
+    () =>
+      connectedAddProjectEnvironmentOptions.map((environment) => ({
+        kind: "action",
+        value: `open-terminal:${environment.environmentId}`,
+        searchTerms: ["terminal", "shell", "console", environment.label, environment.environmentId],
+        title: environment.label,
+        description: environment.isPrimary
+          ? "Open a terminal on this device"
+          : "Open a terminal through T3 Connect",
+        icon: environment.isPrimary ? (
+          <MonitorIcon className={ITEM_ICON_CLASS} />
+        ) : (
+          <CloudIcon className={ITEM_ICON_CLASS} />
+        ),
+        run: async () => {
+          await openTerminalOnEnvironment(environment.environmentId);
+        },
+      })),
+    [connectedAddProjectEnvironmentOptions, openTerminalOnEnvironment],
+  );
+
+  const terminalLauncherItem = useMemo<CommandPaletteSubmenuItem | null>(() => {
+    if (terminalEnvironmentItems.length === 0) return null;
+    return {
+      kind: "submenu",
+      value: "action:open-terminal-on",
+      searchTerms: ["terminal", "shell", "console", "remote", "machine"],
+      title: "Open terminal on...",
+      description: "Choose any connected machine",
+      icon: <SquareTerminalIcon className={ITEM_ICON_CLASS} />,
+      addonIcon: <SquareTerminalIcon className={ADDON_ICON_CLASS} />,
+      groups: [{ value: "environments", label: "Machines", items: terminalEnvironmentItems }],
+    };
+  }, [terminalEnvironmentItems]);
+
   const allThreadItems = useMemo(
     () =>
       buildThreadActionItems({
@@ -1622,6 +1681,57 @@ function OpenCommandPaletteDialog(props: {
     startAddProjectSourceSelection,
   ]);
 
+  const newProjectFolderEnvironmentItems = useMemo<CommandPaletteActionItem[]>(
+    () =>
+      connectedAddProjectEnvironmentOptions.map((environment) => ({
+        kind: "action",
+        value: `new-project-folder:${environment.environmentId}`,
+        searchTerms: [
+          "new project",
+          "folder",
+          "directory",
+          "browse",
+          "create",
+          environment.label,
+          environment.environmentId,
+        ],
+        title: environment.label,
+        description: environment.isPrimary
+          ? "Browse or create a folder on this device"
+          : "Browse or create a folder through T3 Connect",
+        icon: environment.isPrimary ? (
+          <MonitorIcon className={ITEM_ICON_CLASS} />
+        ) : (
+          <CloudIcon className={ITEM_ICON_CLASS} />
+        ),
+        keepOpen: true,
+        run: async () => {
+          await startAddProjectBrowse(environment.environmentId);
+        },
+      })),
+    [connectedAddProjectEnvironmentOptions, startAddProjectBrowse],
+  );
+
+  const newProjectFolderItem = useMemo<CommandPaletteSubmenuItem | null>(() => {
+    if (newProjectFolderEnvironmentItems.length === 0) return null;
+    return {
+      kind: "submenu",
+      value: "action:new-project-folder",
+      searchTerms: ["new project", "folder", "directory", "browse", "create", "machine"],
+      title: "Choose or create project folder",
+      description: "Browse the filesystem on any connected machine",
+      icon: <FolderPlusIcon className={ITEM_ICON_CLASS} />,
+      addonIcon: <FolderPlusIcon className={ADDON_ICON_CLASS} />,
+      groups: [
+        {
+          value: "environments",
+          label: "Create project on",
+          items: newProjectFolderEnvironmentItems,
+        },
+      ],
+    };
+  }, [newProjectFolderEnvironmentItems]);
+
   useLayoutEffect(() => {
     if (openIntent?.kind !== "add-project") {
       return;
@@ -1664,6 +1774,24 @@ function OpenCommandPaletteDialog(props: {
               },
             ]
           : []),
+        ...(terminalLauncherItem
+          ? [
+              {
+                value: "terminal",
+                label: "Terminal",
+                items: [terminalLauncherItem],
+              },
+            ]
+          : []),
+        ...(newProjectFolderItem
+          ? [
+              {
+                value: "new-project",
+                label: "New project",
+                items: [newProjectFolderItem],
+              },
+            ]
+          : []),
         ...(prioritized.length > 0
           ? [
               {
@@ -1681,15 +1809,25 @@ function OpenCommandPaletteDialog(props: {
     currentProjectEnvironmentId,
     currentProjectId,
     openIntent,
+    newProjectFolderItem,
     projectlessThreadItem,
     projectThreadItems,
     pushPaletteView,
+    terminalLauncherItem,
   ]);
 
   const actionItems: Array<CommandPaletteActionItem | CommandPaletteSubmenuItem> = [];
 
   if (projectlessThreadItem) {
     actionItems.push(projectlessThreadItem);
+  }
+
+  if (terminalLauncherItem) {
+    actionItems.push(terminalLauncherItem);
+  }
+
+  if (newProjectFolderItem) {
+    actionItems.push(newProjectFolderItem);
   }
 
   if (projects.length > 0) {

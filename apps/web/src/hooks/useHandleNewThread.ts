@@ -33,6 +33,7 @@ import { readT3ProjectFileDefaultThreadEnvMode } from "../lib/t3ProjectFileDefau
 import { primaryServerSettingsAtom } from "../state/server";
 import { resolveThreadRouteTarget } from "../threadRoutes";
 import { legacyProjectCwdPreferenceKey, useUiStateStore } from "../uiStateStore";
+import { useTerminalUiStateStore } from "../terminalUiStateStore";
 import { useClientSettings } from "./useSettings";
 
 interface NewThreadWorkspaceOptions {
@@ -77,6 +78,8 @@ export function useNewThreadHandler() {
         envMode?: DraftThreadEnvMode;
         startFromOrigin?: boolean;
         replace?: boolean;
+        /** Open the thread's embedded terminal as soon as its route is shown. */
+        openTerminal?: boolean;
       },
       // Which draft the thread ended up in, so a caller that has something to put in it — a
       // prepared checkout, a task to write — addresses that one rather than looking the project
@@ -178,6 +181,11 @@ export function useNewThreadHandler() {
         readThreadShell(storedDraftThreadRef) === null
           ? storedDraftThread
           : null;
+      const openTerminalForThread = (threadRef: ReturnType<typeof scopeThreadRef>): void => {
+        if (options?.openTerminal) {
+          useTerminalUiStateStore.getState().setTerminalOpen(threadRef, true);
+        }
+      };
       if (storedDraftThreadRef && reusableStoredDraftThread === null) {
         markPromotedDraftThreadByRef(storedDraftThreadRef);
       }
@@ -306,6 +314,9 @@ export function useNewThreadHandler() {
             draftId: emptyStoredDraftThread.draftId,
             threadId: emptyStoredDraftThread.threadId,
           };
+          openTerminalForThread(
+            scopeThreadRef(emptyStoredDraftThread.environmentId, emptyStoredDraftThread.threadId),
+          );
           // Re-read the route: the snapshot from before the await is stale
           // once a concurrent invocation's navigation lands, and navigating
           // again would push a duplicate history entry.
@@ -334,6 +345,9 @@ export function useNewThreadHandler() {
         // invested draft mints a fresh one instead of repurposing it.
         !composerDraftHasUserContent(getComposerDraft(currentRouteTarget.draftId))
       ) {
+        openTerminalForThread(
+          scopeThreadRef(latestActiveDraftThread.environmentId, latestActiveDraftThread.threadId),
+        );
         if (
           hasBranchOption ||
           hasWorktreePathOption ||
@@ -392,6 +406,7 @@ export function useNewThreadHandler() {
             interactionMode: racedDraft.interactionMode,
             ...pickExplicitWorkspaceOptions(options),
           });
+          openTerminalForThread(scopeThreadRef(racedDraft.environmentId, racedDraft.threadId));
           await router.navigate({
             to: "/draft/$draftId",
             params: { draftId: racedDraft.draftId },
@@ -399,6 +414,7 @@ export function useNewThreadHandler() {
           });
           return { draftId: racedDraft.draftId, threadId: racedDraft.threadId };
         }
+        openTerminalForThread(scopeThreadRef(projectRef.environmentId, threadId));
         setLogicalProjectDraftThreadId(logicalProjectKey, projectRef, draftId, {
           threadId,
           createdAt,
