@@ -10,7 +10,7 @@ import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import { ChevronDownIcon } from "lucide-react";
+import { ChevronDownIcon, SquarePenIcon } from "lucide-react";
 import {
   memo,
   useCallback,
@@ -46,6 +46,7 @@ import {
   WorkspaceBreadcrumbSeparator,
 } from "../WorkspaceBreadcrumb";
 import { cn } from "~/lib/utils";
+import { Button } from "../ui/button";
 
 interface ChatHeaderProps {
   activeThreadEnvironmentId: EnvironmentId;
@@ -68,6 +69,7 @@ interface ChatHeaderProps {
   readonly onOpenPullRequest?: ((number: number) => void) | undefined;
   onNewThreadInProject: () => void;
   onOpenProjectSettings?: (() => void) | undefined;
+  onOpenNewThreadPicker: () => void;
   onRunProjectScript: (script: ProjectScript) => void;
   onAddProjectScript: (input: NewProjectScriptInput) => Promise<ProjectScriptActionResult>;
   onUpdateProjectScript: (
@@ -140,6 +142,7 @@ export const ChatHeader = memo(function ChatHeader({
   onOpenPullRequest,
   onNewThreadInProject,
   onOpenProjectSettings,
+  onOpenNewThreadPicker,
   onRunProjectScript,
   onAddProjectScript,
   onUpdateProjectScript,
@@ -419,6 +422,24 @@ export const ChatHeader = memo(function ChatHeader({
           "[[data-panel-animations=true]_&]:motion-safe:transition-[padding-right] [[data-panel-animations=true]_&]:motion-safe:[transition-duration:var(--panel-animation-duration)] [[data-panel-animations=true]_&]:motion-safe:ease-out",
         )}
       >
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="no-drag h-7 gap-1.5 px-2 text-muted-foreground hover:text-foreground"
+                onClick={onOpenNewThreadPicker}
+                aria-label="New thread — choose project and machine"
+              />
+            }
+          >
+            <SquarePenIcon className="size-3.5" />
+            <span className="hidden text-xs font-medium @4xl/header-actions:inline">New</span>
+          </TooltipTrigger>
+          <TooltipPopup side="bottom">New thread — choose project and machine</TooltipPopup>
+        </Tooltip>
         {activeProjectScripts && (
           <ProjectScriptsControl
             scripts={activeProjectScripts}

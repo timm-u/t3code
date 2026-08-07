@@ -2556,6 +2556,19 @@ export function resolvePackageManagerUserAgent(packageManager: string): string {
   return `${trimmed.slice(0, versionSeparator)}/${trimmed.slice(versionSeparator + 1)}`;
 }
 
+/** Keep the version embedded by Vite aligned with the Electron artifact and
+ * bundled server. T3 Connect compares this value with the remote server, so
+ * packaging metadata alone is not sufficient. */
+export function resolveDesktopArtifactBuildEnvironment(
+  version: string,
+  env: Readonly<NodeJS.ProcessEnv>,
+): NodeJS.ProcessEnv {
+  return {
+    ...env,
+    APP_VERSION: version,
+  };
+}
+
 export function resolveDesktopProductName(version: string): string {
   return resolveDesktopUpdateChannel(version) === "nightly"
     ? "T3 Code (Nightly)"
@@ -3447,10 +3460,14 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
 
   if (!options.skipBuild) {
     yield* Effect.log("[desktop-artifact] Building desktop/server/web artifacts...");
-    const spawnCommand = yield* resolveSpawnCommand("vp", ["run", "build:desktop"]);
+    const artifactBuildEnv = resolveDesktopArtifactBuildEnvironment(appVersion, process.env);
+    const spawnCommand = yield* resolveSpawnCommand("vp", ["run", "build:desktop"], {
+      env: artifactBuildEnv,
+    });
     yield* runCommand(
       ChildProcess.make(spawnCommand.command, spawnCommand.args, {
         cwd: repoRoot,
+        env: artifactBuildEnv,
         shell: spawnCommand.shell,
       }),
       { label: "vp run build:desktop", verbose: options.verbose },

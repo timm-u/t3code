@@ -18,6 +18,7 @@ import { CommandPalette } from "../components/CommandPalette";
 import { ConfirmDialogHost } from "../components/ConfirmDialogHost";
 import { FirstRunGate } from "../components/onboarding/FirstRunGate";
 import { ConnectOnboardingDialog } from "../components/cloud/ConnectOnboardingDialog";
+import { AutoConnectRelayEnvironments } from "../components/cloud/AutoConnectRelayEnvironments";
 import { RelayClientInstallDialog } from "../components/cloud/RelayClientInstallDialog";
 import { SshPasswordPromptDialog } from "../components/desktop/SshPasswordPromptDialog";
 import { DesktopAppActivationCoordinator } from "../components/desktop/DesktopAppActivationCoordinator";
@@ -173,6 +174,7 @@ function RootRouteView() {
           {primaryEnvironmentAuthenticated ? <AuthenticatedTracingBootstrap /> : null}
           {primaryEnvironmentAuthenticated ? <DesktopAppActivationCoordinator /> : null}
           <RelayClientInstallDialog />
+          <AutoConnectRelayEnvironments />
           <ConnectOnboardingDialog />
           <SshPasswordPromptDialog />
           <ConfirmDialogHost />

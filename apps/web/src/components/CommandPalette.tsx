@@ -50,6 +50,8 @@ import {
   LinkIcon,
   MessageSquareIcon,
   PaletteIcon,
+  MonitorIcon,
+  CloudIcon,
   SettingsIcon,
   SquarePenIcon,
   TextSearchIcon,
@@ -73,6 +75,7 @@ import { useDesktopLocalBootstraps } from "../connection/useDesktopLocalBootstra
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useOpenPanelPullRequestUrl } from "../hooks/useOpenPanelPullRequestUrl";
 import { writeTextToClipboard } from "../hooks/useCopyToClipboard";
+import { useStartProjectlessThread } from "../hooks/useStartProjectlessThread";
 import { useClientSettings } from "../hooks/useSettings";
 import { useTheme } from "../hooks/useTheme";
 import { readLocalApi } from "../localApi";
@@ -171,6 +174,7 @@ import { ComposerHandleContext, useComposerHandleContext } from "../composerHand
 import type { ChatComposerHandle } from "./chat/ChatComposer";
 import { getProjectOrderKey, selectProjectGroupingSettings } from "../logicalProject";
 import { legacyProjectCwdPreferenceKey, useUiStateStore } from "../uiStateStore";
+import { isProjectlessProject } from "../lib/projectless";
 import {
   buildSidebarProjectPickerEntries,
   buildSidebarProjectSnapshots,
@@ -604,6 +608,7 @@ function OpenCommandPaletteDialog(props: {
   const availableSettingsSearchItems = useAvailableSettingsSearchItems();
   const { activeDraftThread, activeThread, defaultProjectRef, handleNewThread } =
     useHandleNewThread();
+  const startProjectlessThread = useStartProjectlessThread();
   const projects = useProjects();
   const changeRequestSnapshotByKey = useAtomValue(ThreadPr.threadChangeRequestSnapshotsAtom);
   const activeThreadProject = useProject(
@@ -1117,7 +1122,7 @@ function OpenCommandPaletteDialog(props: {
     () =>
       enumerateCommandPaletteItems(
         buildProjectActionItems({
-          projects: pickerProjects,
+          projects: pickerProjects.filter((project) => !isProjectlessProject(project)),
           valuePrefix: "new-thread-in",
           searchTerms: (project) => {
             const group = projectGroupByTargetKey.get(`${project.environmentId}:${project.id}`);
@@ -1177,6 +1182,85 @@ function OpenCommandPaletteDialog(props: {
       projectGroupByTargetKey,
     ],
   );
+
+  const runProjectlessThread = useCallback(
+    async (environmentId: EnvironmentId) => {
+      try {
+        await startProjectlessThread(environmentId);
+        setOpen(false);
+      } catch (cause) {
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Could not start a projectless thread",
+            description: cause instanceof Error ? cause.message : "An unexpected error occurred.",
+          }),
+        );
+      }
+    },
+    [setOpen, startProjectlessThread],
+  );
+
+  const projectlessEnvironmentItems = useMemo<CommandPaletteActionItem[]>(
+    () =>
+      addProjectEnvironmentOptions
+        .filter((environment) => environment.isConnected)
+        .map((environment) => ({
+          kind: "action",
+          value: `new-thread-projectless:${environment.environmentId}`,
+          searchTerms: [
+            "no project",
+            "projectless",
+            "scratch",
+            environment.label,
+            environment.environmentId,
+          ],
+          title: environment.label,
+          description: environment.isPrimary ? "This device" : "T3 Connect environment",
+          icon: environment.isPrimary ? (
+            <MonitorIcon className={ITEM_ICON_CLASS} />
+          ) : (
+            <CloudIcon className={ITEM_ICON_CLASS} />
+          ),
+          run: async () => {
+            await runProjectlessThread(environment.environmentId);
+          },
+        })),
+    [addProjectEnvironmentOptions, runProjectlessThread],
+  );
+
+  const projectlessThreadItem = useMemo<
+    CommandPaletteActionItem | CommandPaletteSubmenuItem | null
+  >(() => {
+    if (projectlessEnvironmentItems.length === 0) return null;
+    if (projectlessEnvironmentItems.length === 1) {
+      const environmentItem = projectlessEnvironmentItems[0];
+      if (!environmentItem) return null;
+      return {
+        ...environmentItem,
+        value: "action:new-projectless-thread",
+        title: "No project",
+        description: "Start in a clean scratch workspace",
+        icon: <MessageSquareIcon className={ITEM_ICON_CLASS} />,
+      };
+    }
+    return {
+      kind: "submenu",
+      value: "action:new-projectless-thread",
+      searchTerms: ["no project", "projectless", "scratch", "machine", "environment"],
+      title: "No project",
+      description: "Choose a machine and start in a clean scratch workspace",
+      icon: <MessageSquareIcon className={ITEM_ICON_CLASS} />,
+      addonIcon: <MessageSquareIcon className={ADDON_ICON_CLASS} />,
+      groups: [
+        {
+          value: "environments",
+          label: "Run on",
+          items: projectlessEnvironmentItems,
+        },
+      ],
+    };
+  }, [projectlessEnvironmentItems]);
 
   const allThreadItems = useMemo(
     () =>
@@ -1547,7 +1631,10 @@ function OpenCommandPaletteDialog(props: {
   }, [clearOpenIntent, openAddProjectFlow, openIntent]);
 
   useLayoutEffect(() => {
-    if (openIntent?.kind !== "new-thread-in" || projectThreadItems.length === 0) {
+    if (
+      openIntent?.kind !== "new-thread-in" ||
+      (projectThreadItems.length === 0 && projectlessThreadItem === null)
+    ) {
       return;
     }
     clearOpenIntent();
@@ -1568,11 +1655,24 @@ function OpenCommandPaletteDialog(props: {
     pushPaletteView({
       addonIcon: <SquarePenIcon className={ADDON_ICON_CLASS} />,
       groups: [
-        {
-          value: "projects",
-          label: "Projects",
-          items: enumerateCommandPaletteItems(prioritized),
-        },
+        ...(projectlessThreadItem
+          ? [
+              {
+                value: "projectless",
+                label: "Start anywhere",
+                items: [projectlessThreadItem],
+              },
+            ]
+          : []),
+        ...(prioritized.length > 0
+          ? [
+              {
+                value: "projects",
+                label: "Projects · machine shown below",
+                items: enumerateCommandPaletteItems(prioritized),
+              },
+            ]
+          : []),
       ],
     });
   }, [
@@ -1581,11 +1681,16 @@ function OpenCommandPaletteDialog(props: {
     currentProjectEnvironmentId,
     currentProjectId,
     openIntent,
+    projectlessThreadItem,
     projectThreadItems,
     pushPaletteView,
   ]);
 
   const actionItems: Array<CommandPaletteActionItem | CommandPaletteSubmenuItem> = [];
+
+  if (projectlessThreadItem) {
+    actionItems.push(projectlessThreadItem);
+  }
 
   if (projects.length > 0) {
     const activeProjectTitle =

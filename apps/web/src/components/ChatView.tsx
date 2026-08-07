@@ -145,7 +145,7 @@ import {
 import { useTheme } from "../hooks/useTheme";
 import { writeTextToClipboard } from "../hooks/useCopyToClipboard";
 import { useTurnDiffSummaries } from "../hooks/useTurnDiffSummaries";
-import { isCommandPaletteOpen } from "../commandPaletteBus";
+import { isCommandPaletteOpen, openCommandPalette } from "../commandPaletteBus";
 import { buildTemporaryWorktreeBranchName } from "@t3tools/shared/git";
 import { useMediaQuery } from "../hooks/useMediaQuery";
 import { RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY } from "../rightPanelLayout";
@@ -215,6 +215,7 @@ import {
   NO_PROVIDER_MODEL_SELECTION,
   sortProviderInstanceEntries,
 } from "../providerInstances";
+import { isProjectlessProject } from "../lib/projectless";
 import {
   useClientSettings,
   useClientSettingsHydrated,
@@ -1985,6 +1986,9 @@ export default function ChatView(props: ChatViewProps) {
       params: { projectKey: activeDraftLogicalProjectKey },
     });
   }, [activeDraftLogicalProjectKey, navigate]);
+  const handleOpenNewThreadPicker = useCallback(() => {
+    openCommandPalette({ open: "new-thread-in" });
+  }, []);
   const activeEnvironmentShell = useEnvironmentQuery(
     activeThread ? environmentShell.stateAtom(activeThread.environmentId) : null,
   );
@@ -3072,6 +3076,7 @@ export default function ChatView(props: ChatViewProps) {
     : null;
   const hasTimelineTopBanner = Boolean(visibleThreadError) || visibleProviderStatus !== null;
   const activeProjectCwd = activeProject?.workspaceRoot ?? null;
+  const activeProjectIsProjectless = activeProject !== null && isProjectlessProject(activeProject);
   const activeThreadWorktreePath = activeThread?.worktreePath ?? null;
   const activeWorkspaceRoot = activeThreadWorktreePath ?? activeProjectCwd ?? undefined;
   const activeTerminalLaunchContext =
@@ -7749,12 +7754,12 @@ export default function ChatView(props: ChatViewProps) {
             {...(routeKind === "draft" && draftId ? { draftId } : {})}
             activeThreadTitle={activeThread.title}
             isServerThread={isServerThread}
-            activeProjectName={activeProject?.title}
+            activeProjectName={activeProjectIsProjectless ? undefined : activeProject?.title}
             activeProjectCwd={activeProject?.workspaceRoot ?? null}
             activeProjectFaviconPath={activeProject?.faviconPath ?? null}
             activeProjectIcon={activeProject?.projectIcon ?? null}
             openInCwd={gitCwd}
-            activeProjectScripts={activeProject?.scripts}
+            activeProjectScripts={activeProjectIsProjectless ? undefined : activeProject?.scripts}
             preferredScriptId={
               activeProject ? (lastInvokedScriptByProjectId[activeProject.id] ?? null) : null
             }
@@ -7766,6 +7771,7 @@ export default function ChatView(props: ChatViewProps) {
             {...(activeDraftLogicalProjectKey
               ? { onOpenProjectSettings: handleOpenDraftProjectSettings }
               : {})}
+            onOpenNewThreadPicker={handleOpenNewThreadPicker}
             onRunProjectScript={runProjectScript}
             onAddProjectScript={saveProjectScript}
             onUpdateProjectScript={updateProjectScript}
