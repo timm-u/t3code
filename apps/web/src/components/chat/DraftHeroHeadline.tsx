@@ -310,17 +310,21 @@ export function DraftHeroHeadline({
         </MenuPopup>
       </Menu>
     ) : (
-      <span
-        className="inline-flex max-w-64 items-center gap-1.5 border-muted-foreground/35 border-b border-dotted align-bottom text-muted-foreground/80"
-        title={`Runs on ${environmentLabel}`}
-      >
-        {activeEnvironment?.isPrimary ? (
-          <MonitorIcon className="size-[0.8em]" />
-        ) : (
-          <CloudIcon className="size-[0.8em]" />
-        )}
-        <span className="truncate">{environmentLabel}</span>
-      </span>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <span className="inline-flex max-w-64 items-center gap-1.5 border-muted-foreground/35 border-b border-dotted align-bottom text-muted-foreground/80" />
+          }
+        >
+          {activeEnvironment?.isPrimary ? (
+            <MonitorIcon className="size-[0.8em]" />
+          ) : (
+            <CloudIcon className="size-[0.8em]" />
+          )}
+          <span className="truncate">{environmentLabel}</span>
+        </TooltipTrigger>
+        <TooltipPopup side="top">Runs on {environmentLabel}</TooltipPopup>
+      </Tooltip>
     );
 
   return (
