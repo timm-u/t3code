@@ -42,11 +42,11 @@ export const reconcileService = Effect.fn("cli.service.reconcile")(function* (op
   if (
     status.installedVersion !== undefined &&
     options?.allowDowngrade !== true &&
-    compareExactServiceVersions(packageJson.version, status.installedVersion) < 0
+    compareExactServiceVersions(SERVER_VERSION, status.installedVersion) < 0
   ) {
     return yield* new BootService.BootServiceDowngradeRefusedError({
       installedVersion: status.installedVersion,
-      targetVersion: packageJson.version,
+      targetVersion: SERVER_VERSION,
     });
   }
   const plan = yield* service.install(options);
@@ -198,7 +198,7 @@ export const offerServiceDuringOnboarding = Effect.gen(function* () {
   if (
     installed &&
     status.installedVersion !== undefined &&
-    compareExactServiceVersions(status.installedVersion, packageJson.version) > 0
+    compareExactServiceVersions(status.installedVersion, SERVER_VERSION) > 0
   ) {
     yield* Console.log(
       `A newer t3@${status.installedVersion} background service is installed. Leaving it unchanged.`,

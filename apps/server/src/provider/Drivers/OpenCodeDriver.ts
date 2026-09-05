@@ -13,6 +13,9 @@
  * @module provider/Drivers/OpenCodeDriver
  */
 import { OpenCodeSettings, ProviderDriverKind } from "@t3tools/contracts";
+import { resolveCommandPath } from "@t3tools/shared/shell";
+import { makeOpenCode2Instance } from "./OpenCode2Instance.ts";
+import { canDiscoverOpenCode2, isOpenCode2Command } from "./OpenCodeExecutable.ts";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -119,6 +122,28 @@ export const OpenCodeDriver: ProviderDriver<OpenCodeSettings, OpenCodeDriverEnv>
         continuationGroupKey: continuationIdentity.continuationKey,
       });
       const effectiveConfig = { ...config, enabled } satisfies OpenCodeSettings;
+      if (!effectiveConfig.serverUrl.trim()) {
+        const configuredBinary = effectiveConfig.binaryPath.trim() || "opencode";
+        const explicitV2 = isOpenCode2Command(configuredBinary);
+        const defaultBinary = canDiscoverOpenCode2(configuredBinary);
+        const v1Path = defaultBinary
+          ? yield* resolveCommandPath(configuredBinary, { env: processEnv }).pipe(
+              Effect.catch(() => Effect.succeed(null)),
+            )
+          : null;
+        const v2Path = explicitV2
+          ? configuredBinary
+          : defaultBinary && !v1Path
+            ? yield* resolveCommandPath("opencode2", { env: processEnv }).pipe(
+                Effect.catch(() => Effect.succeed(null)),
+              )
+            : null;
+        if (v2Path)
+          return yield* makeOpenCode2Instance(
+            { instanceId, displayName, accentColor, environment, enabled, config },
+            v2Path,
+          );
+      }
       const resolveMaintenance = yield* makeCachedProviderMaintenanceResolution(
         resolveProviderMaintenanceCapabilitiesEffect(UPDATE, {
           binaryPath: effectiveConfig.binaryPath,

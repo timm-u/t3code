@@ -64,9 +64,9 @@ import {
   applyGrokAcpModelSelection,
   currentGrokModelIdFromSessionSetup,
   currentGrokReasoningEffortFromSessionSetup,
-  makeGrokAcpRuntime,
+  makeGrokAcpRuntime as makeDefaultGrokAcpRuntime,
   normalizeGrokReasoningEffort,
-  resolveGrokAcpBaseModelId,
+  resolveGrokAcpBaseModelId as resolveDefaultGrokAcpBaseModelId,
 } from "../acp/GrokAcpSupport.ts";
 import {
   extractGrokPlanMarkdownFromToolCallData,
@@ -84,7 +84,6 @@ import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogg
 
 const encodeUnknownJsonStringExit = Schema.encodeUnknownExit(Schema.fromJsonString(Schema.Unknown));
 
-const PROVIDER = ProviderDriverKind.make("grok");
 const GROK_RESUME_VERSION = 1 as const;
 const NANOS_PER_MILLI = 1_000_000n;
 // ACP does not expose Grok's private `streaming_reasoning` phase. Once it has
@@ -102,6 +101,18 @@ function encodeJsonStringForDiagnostics(input: unknown): string | undefined {
 }
 
 export interface GrokAdapterLiveOptions {
+  /** Protocol-specific hooks share the ACP lifecycle, event draining and approval handling. */
+  readonly protocol?: {
+    readonly provider: ProviderDriverKind;
+    readonly harness: string;
+    readonly resumeVersion: number;
+    readonly makeRuntime: typeof makeDefaultGrokAcpRuntime;
+    readonly resolveModel: typeof resolveDefaultGrokAcpBaseModelId;
+    readonly beforePrompt?: (
+      runtime: AcpSessionRuntime.AcpSessionRuntime["Service"],
+      input: import("@t3tools/contracts").ProviderSendTurnInput,
+    ) => Effect.Effect<void, EffectAcpErrors.AcpError>;
+  };
   readonly environment?: NodeJS.ProcessEnv;
   readonly nativeEventLogPath?: string;
   readonly nativeEventLogger?: EventNdjsonLogger;
@@ -273,9 +284,12 @@ const resolveSessionCallbackTurnId = (
   return ctx ? resolveCallbackTurnId(ctx) : undefined;
 };
 
-function parseGrokResume(raw: unknown): { sessionId: string } | undefined {
+function parseGrokResume(
+  raw: unknown,
+  version = GROK_RESUME_VERSION as number,
+): { sessionId: string } | undefined {
   if (!isRecord(raw)) return undefined;
-  if (raw.schemaVersion !== GROK_RESUME_VERSION) return undefined;
+  if (raw.schemaVersion !== version) return undefined;
   if (typeof raw.sessionId !== "string" || !raw.sessionId.trim()) return undefined;
   return { sessionId: raw.sessionId.trim() };
 }
@@ -338,8 +352,12 @@ export function grokPromptSettlementBelongsToContext(input: {
 }
 
 export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapterLiveOptions) {
+  const PROVIDER = options?.protocol?.provider ?? ProviderDriverKind.make("grok");
+  const makeGrokAcpRuntime = options?.protocol?.makeRuntime ?? makeDefaultGrokAcpRuntime;
+  const resolveGrokAcpBaseModelId =
+    options?.protocol?.resolveModel ?? resolveDefaultGrokAcpBaseModelId;
   return Effect.gen(function* () {
-    const boundInstanceId = options?.instanceId ?? ProviderInstanceId.make("grok");
+    const boundInstanceId = options?.instanceId ?? ProviderInstanceId.make(PROVIDER);
     const fileSystem = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
     const childProcessSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
@@ -979,7 +997,18 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
             sessionScopeTransferred ? Effect.void : Scope.close(sessionScope, Exit.void),
           );
 
-          const resumeSessionId = parseGrokResume(input.resumeCursor)?.sessionId;
+          const resumeSessionId = parseGrokResume(
+            input.resumeCursor,
+            options?.protocol?.resumeVersion,
+          )?.sessionId;
+          if (options?.protocol && input.resumeCursor !== undefined && !resumeSessionId) {
+            return yield* new ProviderAdapterValidationError({
+              provider: PROVIDER,
+              operation: "startSession",
+              issue:
+                "This saved session uses a different provider protocol. Keep its original provider available or start a new thread.",
+            });
+          }
           const acpNativeLoggers = makeAcpNativeLoggers({
             nativeEventLogger,
             provider: PROVIDER,
@@ -1263,7 +1292,7 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
             ...(boundModelId ? { model: resolveGrokAcpBaseModelId(boundModelId) } : {}),
             threadId: input.threadId,
             resumeCursor: {
-              schemaVersion: GROK_RESUME_VERSION,
+              schemaVersion: options?.protocol?.resumeVersion ?? GROK_RESUME_VERSION,
               sessionId: started.sessionId,
             },
             createdAt: now,
@@ -1576,6 +1605,15 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
                   mapAcpToAdapterError(PROVIDER, input.threadId, "session/set_model", cause),
               });
               ctx.currentModelId = currentModelId;
+              if (options?.protocol?.beforePrompt) {
+                yield* options.protocol
+                  .beforePrompt(ctx.acp, input)
+                  .pipe(
+                    Effect.mapError((cause) =>
+                      mapAcpToAdapterError(PROVIDER, input.threadId, "session/configure", cause),
+                    ),
+                  );
+              }
               if (requestedTurnReasoningEffort !== undefined) {
                 ctx.currentReasoningEffort = normalizeGrokReasoningEffort(
                   requestedTurnReasoningEffort,
@@ -1585,7 +1623,7 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
                 ? resolveGrokAcpBaseModelId(currentModelId)
                 : undefined;
               const runtimeInstructions = buildRuntimeInstructions({
-                harness: "Grok",
+                harness: options?.protocol?.harness ?? "Grok",
                 model: displayModel,
                 reasoningEffort: normalizeGrokReasoningEffort(requestedTurnReasoningEffort),
               });
@@ -2127,7 +2165,10 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
 
     return {
       provider: PROVIDER,
-      capabilities: { sessionModelSwitch: "in-session" },
+      capabilities: {
+        sessionModelSwitch: "in-session",
+        ...(options?.protocol ? { supportsConversationRollback: false } : {}),
+      },
       startSession,
       sendTurn,
       interruptTurn,
