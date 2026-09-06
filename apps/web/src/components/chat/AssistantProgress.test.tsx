@@ -36,6 +36,14 @@ describe("AssistantProgress", () => {
     });
     expect(renderer.root.findAllByType("article")).toHaveLength(0);
     await act(async () => {
+      renderer.update(
+        <AssistantProgress text={report} active={false} revealKey="citation-1">
+          <article>{report}</article>
+        </AssistantProgress>,
+      );
+    });
+    expect(renderer.root.findByType("article").children.join("")).toBe(report);
+    await act(async () => {
       renderer.unmount();
     });
   });

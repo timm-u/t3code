@@ -5,14 +5,21 @@ import { ChevronRightIcon } from "lucide-react";
 export function AssistantProgress({
   text,
   active,
+  revealKey,
   children,
 }: {
   text: string;
   active: boolean;
+  revealKey?: string;
   children: ReactNode;
 }) {
-  const [expanded, setExpanded] = useState(false);
+  const [disclosure, setDisclosure] = useState({ expanded: Boolean(revealKey), revealKey });
+  const expanded = disclosure.expanded;
   const contentId = useId();
+  // A citation navigation must reveal its source even inside long working notes.
+  if (revealKey && revealKey !== disclosure.revealKey) {
+    setDisclosure({ expanded: true, revealKey });
+  }
   const isReport =
     text.length > 600 ||
     /(^|\n)(#{1,6}\s|```|\|.+\|)/.test(text.slice(0, 600)) ||
@@ -38,7 +45,7 @@ export function AssistantProgress({
         type="button"
         aria-expanded={expanded}
         aria-controls={contentId}
-        onClick={() => setExpanded((value) => !value)}
+        onClick={() => setDisclosure((value) => ({ ...value, expanded: !value.expanded }))}
         className="flex cursor-pointer items-center gap-1.5 rounded-sm text-xs text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         <ChevronRightIcon

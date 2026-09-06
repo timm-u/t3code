@@ -1531,7 +1531,13 @@ function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "mess
           <p className="mb-2 text-xs text-muted-foreground">Partial response</p>
         ) : null}
         {row.assistantPresentation === "progress" ? (
-          <AssistantProgress text={messageText} active={row.assistantCopyStreaming}>
+          <AssistantProgress
+            text={messageText}
+            active={row.assistantCopyStreaming}
+            {...(ctx.citationRequest?.citation.messageId === row.message.id
+              ? { revealKey: ctx.citationRequest.key }
+              : {})}
+          >
             {content}
           </AssistantProgress>
         ) : (
