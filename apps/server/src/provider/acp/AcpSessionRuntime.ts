@@ -1157,10 +1157,14 @@ const handleSessionUpdate = ({
     }
     for (const event of parsed.events) {
       if (event._tag === "ToolCallUpdated") {
-        yield* closeActiveAssistantSegment({
-          queue,
-          assistantSegmentRef,
-        });
+        // A new call ends a text segment. Background output/status updates do
+        // not: they can arrive in the middle of a sentence the agent is streaming.
+        if (params.update.sessionUpdate === "tool_call") {
+          yield* closeActiveAssistantSegment({
+            queue,
+            assistantSegmentRef,
+          });
+        }
         const { merged, decision } = yield* Ref.modify(toolCallsRef, (current) => {
           const tracked = current.get(event.toolCall.toolCallId);
           const previous = tracked?.state;

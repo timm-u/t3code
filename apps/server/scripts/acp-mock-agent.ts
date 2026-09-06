@@ -835,6 +835,40 @@ const program = Effect.gen(function* () {
         return yield* Effect.never;
       }
 
+      if (process.env.T3_ACP_EMIT_BACKGROUND_TOOL_UPDATES === "1") {
+        yield* agent.client.sessionUpdate({
+          sessionId: requestedSessionId,
+          update: {
+            sessionUpdate: "tool_call",
+            toolCallId: "background",
+            title: "Review",
+            kind: "other",
+            status: "pending",
+          },
+        });
+        for (const [text, status] of [
+          ["The imports are ", "in_progress"],
+          ["correct and ", "completed"],
+        ] as const) {
+          yield* agent.client.sessionUpdate({
+            sessionId: requestedSessionId,
+            update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text } },
+          });
+          yield* agent.client.sessionUpdate({
+            sessionId: requestedSessionId,
+            update: { sessionUpdate: "tool_call_update", toolCallId: "background", status },
+          });
+        }
+        yield* agent.client.sessionUpdate({
+          sessionId: requestedSessionId,
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: "verified." },
+          },
+        });
+        return { stopReason: "end_turn" };
+      }
+
       if (emitInterleavedAssistantToolCalls) {
         const toolCallId = "tool-call-1";
 

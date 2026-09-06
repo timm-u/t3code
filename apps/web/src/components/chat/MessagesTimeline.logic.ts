@@ -336,6 +336,7 @@ export type MessagesTimelineRow =
       showAssistantMeta: boolean;
       showAssistantCopyButton: boolean;
       assistantCopyStreaming: boolean;
+      assistantPresentation?: "progress" | "answer" | "partial";
       assistantTurnDiffSummary?: TurnDiffSummary | undefined;
       revertTurnCount?: number | undefined;
     }
@@ -661,6 +662,8 @@ function deriveTurnFolds(input: {
 
     const isLatestInterruptedTurn =
       input.latestTurn?.turnId === turnId && input.latestTurn.state === "interrupted";
+    const isLatestFailedTurn =
+      input.latestTurn?.turnId === turnId && input.latestTurn.state === "error";
     // A turn cut short by a steer leaves trailing work entries behind its
     // terminal message — take whichever ended last.
     const lastEntryEnd =
@@ -680,9 +683,13 @@ function deriveTurnFolds(input: {
       ? duration
         ? `You stopped after ${duration}`
         : "You stopped this response"
-      : duration
-        ? `Worked for ${duration}`
-        : "Worked";
+      : isLatestFailedTurn
+        ? duration
+          ? `Stopped with an error after ${duration}`
+          : "Stopped with an error"
+        : duration
+          ? `Worked for ${duration}`
+          : "Worked";
 
     foldsByAnchorEntryId.set(firstHiddenEntry.id, {
       turnId,
@@ -1134,6 +1141,13 @@ export function deriveMessagesTimelineRows(input: {
       showAssistantMeta,
       showAssistantCopyButton: showAssistantMeta,
       assistantCopyStreaming: timelineEntry.message.streaming || assistantResponseStillInProgress,
+      assistantPresentation:
+        !showAssistantMeta || timelineEntry.message.streaming
+          ? "progress"
+          : input.latestTurn?.turnId === timelineEntry.message.turnId &&
+              (input.latestTurn.state === "interrupted" || input.latestTurn.state === "error")
+            ? "partial"
+            : "answer",
       assistantTurnDiffSummary:
         timelineEntry.message.role === "assistant"
           ? input.turnDiffSummaryByAssistantMessageId.get(timelineEntry.message.id)
@@ -1310,6 +1324,7 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
         a.showAssistantCopyButton === bm.showAssistantCopyButton &&
         a.assistantCopyStreaming === bm.assistantCopyStreaming &&
         a.assistantTurnDiffSummary === bm.assistantTurnDiffSummary &&
+        a.assistantPresentation === bm.assistantPresentation &&
         a.revertTurnCount === bm.revertTurnCount
       );
     }

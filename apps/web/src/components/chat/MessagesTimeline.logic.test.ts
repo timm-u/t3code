@@ -103,6 +103,45 @@ describe("streaming row projection", () => {
     return { messages, work, timeline, input, time, turnId, historyTurnId };
   }
 
+  it.each(["completed", "interrupted", "error"] as const)(
+    "keeps verdict-like text provisional until the turn settles as %s",
+    (state) => {
+      const initial = fixture("## Verdict\nEverything is done.");
+      const previous = deriveMessagesTimelineRowsWithState(initial.input);
+      const active = previous.rows.find(
+        (row) => row.kind === "message" && row.message.id === "live-assistant",
+      );
+      expect(active).toMatchObject({
+        assistantPresentation: "progress",
+        showAssistantCopyButton: false,
+      });
+      const messages = initial.messages.map((message) => ({ ...message, streaming: false }));
+      const settled = deriveMessagesTimelineRowsWithState(
+        {
+          ...initial.input,
+          timelineEntries: deriveTimelineEntries(messages, [], initial.work),
+          latestTurn: {
+            turnId: initial.turnId,
+            state,
+            startedAt: initial.time(5),
+            completedAt: initial.time(10),
+          },
+          runningTurnId: null,
+          isWorking: false,
+        },
+        previous,
+      );
+      const answer = settled.rows.find(
+        (row) => row.kind === "message" && row.message.id === "live-assistant",
+      );
+      expect(answer).toMatchObject({
+        assistantPresentation: state === "completed" ? "answer" : "partial",
+      });
+      expect(settled.rows.some((row) => row.kind === "working")).toBe(false);
+      expect(settled.rows.some((row) => row.kind === "turn-fold")).toBe(true);
+    },
+  );
+
   it.each([
     ["", "Now visible"],
     [" \n", "Now visible"],

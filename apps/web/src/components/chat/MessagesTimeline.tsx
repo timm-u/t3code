@@ -115,6 +115,7 @@ import { ProposedPlanCard } from "./ProposedPlanCard";
 import { ChangedFilesCard } from "./ChangedFilesTree";
 import { CHAT_TIMELINE_ANCHOR_OFFSET } from "./timelineScrollAnchoring";
 import { MessageCopyButton } from "./MessageCopyButton";
+import { AssistantProgress } from "./AssistantProgress";
 import { PierreEntryIcon } from "./PierreEntryIcon";
 import { AssistantSelectionToolbar } from "./AssistantSelectionToolbar";
 import type { AssistantCitationSourceAnchor } from "~/lib/assistantTextSelection";
@@ -1502,34 +1503,48 @@ function TurnFoldTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "turn-
 function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" }> }) {
   const ctx = use(TimelineRowCtx);
   const messageText = row.message.text || (row.message.streaming ? "" : "(empty response)");
+  const content = (
+    <AssistantCitationSource
+      messageId={row.message.id}
+      {...(ctx.threadRef ? { threadRef: ctx.threadRef } : {})}
+      itemKey={row.id}
+      request={ctx.citationRequest}
+      listRef={ctx.listRef}
+    >
+      <ChatMarkdown
+        text={messageText}
+        cwd={ctx.markdownCwd}
+        threadRef={ctx.threadRef ?? undefined}
+        isStreaming={Boolean(row.message.streaming)}
+        lineBreaks={shouldPreserveAssistantLineBreaks(messageText)}
+        skills={ctx.skills}
+        onUseArtifactTemplate={ctx.onUseArtifactTemplate}
+        onImageExpand={ctx.onImageExpand}
+      />
+    </AssistantCitationSource>
+  );
 
   return (
     <>
       <div className="relative min-w-0 px-1 py-0.5">
-        <AssistantCitationSource
-          messageId={row.message.id}
-          {...(ctx.threadRef ? { threadRef: ctx.threadRef } : {})}
-          itemKey={row.id}
-          request={ctx.citationRequest}
-          listRef={ctx.listRef}
-        >
-          <ChatMarkdown
-            text={messageText}
-            cwd={ctx.markdownCwd}
-            threadRef={ctx.threadRef ?? undefined}
-            isStreaming={Boolean(row.message.streaming)}
-            lineBreaks={shouldPreserveAssistantLineBreaks(messageText)}
-            skills={ctx.skills}
-            onUseArtifactTemplate={ctx.onUseArtifactTemplate}
-            onImageExpand={ctx.onImageExpand}
+        {row.assistantPresentation === "partial" ? (
+          <p className="mb-2 text-xs text-muted-foreground">Partial response</p>
+        ) : null}
+        {row.assistantPresentation === "progress" ? (
+          <AssistantProgress text={messageText} active={row.assistantCopyStreaming}>
+            {content}
+          </AssistantProgress>
+        ) : (
+          content
+        )}
+        {row.assistantPresentation !== "progress" ? (
+          <AssistantChangedFilesSection
+            turnSummary={row.assistantTurnDiffSummary}
+            routeThreadKey={ctx.routeThreadKey}
+            resolvedTheme={ctx.resolvedTheme}
+            onOpenTurnDiff={ctx.onOpenTurnDiff}
           />
-        </AssistantCitationSource>
-        <AssistantChangedFilesSection
-          turnSummary={row.assistantTurnDiffSummary}
-          routeThreadKey={ctx.routeThreadKey}
-          resolvedTheme={ctx.resolvedTheme}
-          onOpenTurnDiff={ctx.onOpenTurnDiff}
-        />
+        ) : null}
         {row.showAssistantMeta ? (
           <AssistantMessageMeta
             className="mt-1.5"

@@ -804,6 +804,38 @@ describe("AcpSessionRuntime", () => {
     ),
   );
 
+  it.effect("keeps a sentence together across background tool progress and completion", () =>
+    Effect.gen(function* () {
+      const runtime = yield* AcpSessionRuntime.AcpSessionRuntime;
+      yield* runtime.start();
+      yield* runtime.prompt({ prompt: [{ type: "text", text: "review" }] });
+      const notes = Array.from(yield* Stream.runCollect(Stream.take(runtime.getEvents(), 8)));
+      const deltas = notes.filter((note) => note._tag === "ContentDelta");
+      expect(deltas.map((note) => note.text).join("")).toBe(
+        "The imports are correct and verified.",
+      );
+      expect(new Set(deltas.map((note) => note.itemId)).size).toBe(1);
+      expect(notes.filter((note) => note._tag === "AssistantItemCompleted")).toHaveLength(1);
+      expect(notes.at(-1)?._tag).toBe("AssistantItemCompleted");
+      expect(
+        notes.filter((note) => note._tag === "ToolCallUpdated").map((note) => note.toolCall.status),
+      ).toEqual(["pending", "inProgress", "completed"]);
+    }).pipe(
+      Effect.provide(
+        AcpSessionRuntime.layer({
+          ...mockRuntimeOptions,
+          spawn: {
+            command: mockAgentCommand,
+            args: mockAgentArgs,
+            env: { T3_ACP_EMIT_BACKGROUND_TOOL_UPDATES: "1" },
+          },
+        }),
+      ),
+      Effect.scoped,
+      Effect.provide(NodeServices.layer),
+    ),
+  );
+
   it.effect("emits status-only tool updates through completion", () =>
     Effect.gen(function* () {
       const runtime = yield* AcpSessionRuntime.AcpSessionRuntime;
