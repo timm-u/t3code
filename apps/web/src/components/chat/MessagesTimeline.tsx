@@ -1533,7 +1533,7 @@ function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "mess
         {row.assistantPresentation === "progress" ? (
           <AssistantProgress
             text={messageText}
-            active={row.assistantCopyStreaming}
+            active={row.message.streaming}
             {...(ctx.citationRequest?.citation.messageId === row.message.id
               ? { revealKey: ctx.citationRequest.key }
               : {})}

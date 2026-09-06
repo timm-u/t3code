@@ -507,6 +507,29 @@ describe("work entry labels", () => {
     tone: "tool" as const,
   };
 
+  it("keeps subagent transport metadata inside tool details", () => {
+    const detail = '<subagent sessionID="ses_private" state="completed"> Review results';
+    const delegated = { ...entry, detail };
+    expect(workEntryDisplayLabel(delegated, undefined)).toBe("Delegated task completed");
+    expect(liveWorkEntryLabel(delegated, undefined, true)).toBe("Delegated task completed");
+    expect(workEntryDisplayLabel({ ...delegated, toolLifecycleStatus: "failed" }, undefined)).toBe(
+      "Delegated task failed",
+    );
+    expect(delegated.detail).toBe(detail);
+  });
+
+  it("does not use truncated output as the compact tool heading", () => {
+    const truncated = { ...entry, detail: "[Earlier output truncated] 135: if (comment) ..." };
+    expect(workEntryDisplayLabel(truncated, undefined)).toBe("Tool output");
+    expect(liveWorkEntryLabel(truncated, undefined, false)).toBe("Tool output");
+    expect(workEntryDisplayLabel({ ...truncated, toolTitle: "Read file" }, undefined)).toBe(
+      "Read file",
+    );
+    expect(workEntryDisplayLabel({ ...truncated, command: "git diff" }, undefined)).toBe(
+      "git diff",
+    );
+  });
+
   it.each([
     ["inProgress", "Clicking in the preview browser"],
     ["completed", "Clicked in the preview browser"],

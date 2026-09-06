@@ -33,12 +33,6 @@ export function AssistantProgress({
     );
   }
 
-  const firstParagraph =
-    text
-      .trimStart()
-      .slice(0, 221)
-      .split(/\n\s*\n/, 1)[0] ?? "";
-  const preview = firstParagraph.slice(0, 220).replace(/\s+/g, " ").trim();
   return (
     <div className="border-l border-border pl-3">
       <button
@@ -52,20 +46,14 @@ export function AssistantProgress({
           aria-hidden="true"
           className={expanded ? "size-3.5 rotate-90" : "size-3.5"}
         />
-        <span>Working notes</span>
-        {active ? <span className="ml-1">Still in progress</span> : null}
+        <span>{active ? "Writing response" : "Response preview"}</span>
       </button>
-      <div id={contentId} className="mt-1.5">
+      <div id={contentId} className={expanded ? "mt-1.5" : undefined}>
         {expanded ? (
           <div className="text-foreground/80 [&_h1]:text-sm [&_h2]:text-sm [&_h3]:text-sm [&_h4]:text-sm [&_p]:text-[13px] [&_li]:text-[13px]">
             {children}
           </div>
-        ) : (
-          <p className="line-clamp-2 break-words text-[13px] leading-relaxed text-muted-foreground">
-            {preview}
-            {firstParagraph.length > 220 ? "…" : ""}
-          </p>
-        )}
+        ) : null}
       </div>
     </div>
   );

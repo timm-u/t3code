@@ -39,6 +39,8 @@ export const TIMELINE_CONTENT_MAX_WIDTH = 768;
 export const TIMELINE_MINIMAP_PERSISTENT_GUTTER = 48;
 
 function singleToolCallLabel(entry: WorkLogEntry): string {
+  const outputLabel = structuredToolOutputLabel(entry);
+  if (outputLabel) return outputLabel;
   const toolPresentation = resolveWorkEntryToolPresentation(entry, "completed");
   if (toolPresentation) return toolPresentation.displayName;
   const command = entry.command?.trim();
@@ -48,6 +50,8 @@ function singleToolCallLabel(entry: WorkLogEntry): string {
 }
 
 export function workEntryDisplayLabel(entry: WorkLogEntry, workspaceRoot: string | undefined) {
+  const outputLabel = structuredToolOutputLabel(entry);
+  if (outputLabel) return outputLabel;
   const toolPresentation = resolveWorkEntryToolPresentation(entry);
   if (toolPresentation) return toolPresentation.displayName;
   if (entry.command) return entry.command;
@@ -61,6 +65,32 @@ export function workEntryDisplayLabel(entry: WorkLogEntry, workspaceRoot: string
   }
   const heading = normalizeCompactToolLabel(entry.toolTitle || entry.label);
   return `${heading.charAt(0).toUpperCase()}${heading.slice(1)}`;
+}
+
+/** Tool payloads belong in the disclosure, never in its compact heading. */
+function structuredToolOutputLabel(entry: WorkLogEntry): string | undefined {
+  if (entry.command) return undefined;
+  const candidates = [entry.detail, entry.toolTitle, entry.label];
+  const subagent = candidates.find((value) => /^\s*<subagent\b/i.test(value ?? ""));
+  if (subagent) {
+    const state = entry.toolLifecycleStatus;
+    if (state === "failed") return "Delegated task failed";
+    if (state === "stopped" || state === "declined") return "Delegated task stopped";
+    // The payload can retain its outcome when older events have no lifecycle status.
+    if (state === "completed" || /\bstate=["']completed["']/i.test(subagent)) {
+      return "Delegated task completed";
+    }
+    return "Delegated task";
+  }
+  if (candidates.some((value) => /^\s*\[Earlier output truncated\]/i.test(value ?? ""))) {
+    const heading = candidates
+      .slice(1)
+      .find((value) => value && !/^\s*\[Earlier output truncated\]/i.test(value));
+    return heading && !/^(tool|tool call)$/i.test(heading)
+      ? normalizeCompactToolLabel(heading)
+      : "Tool output";
+  }
+  return undefined;
 }
 
 export function liveWorkEntryLabel(

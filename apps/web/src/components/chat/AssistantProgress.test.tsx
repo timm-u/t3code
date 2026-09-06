@@ -23,6 +23,10 @@ describe("AssistantProgress", () => {
       renderer.update(render(report));
     });
     expect(renderer.root.findAllByType("article")).toHaveLength(0);
+    expect(renderer.root.findAllByType("p")).toHaveLength(0);
+    expect(renderer.root.findByType("button").findByType("span").children).toEqual([
+      "Writing response",
+    ]);
     await act(async () => {
       renderer.root.findByType("button").props.onClick();
     });
@@ -42,6 +46,9 @@ describe("AssistantProgress", () => {
         </AssistantProgress>,
       );
     });
+    expect(renderer.root.findByType("button").findByType("span").children).toEqual([
+      "Response preview",
+    ]);
     expect(renderer.root.findByType("article").children.join("")).toBe(report);
     await act(async () => {
       renderer.unmount();
