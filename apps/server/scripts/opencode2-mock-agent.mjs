@@ -29,10 +29,34 @@ NodeReadline.createInterface({ input: process.stdin }).on("line", (line) => {
         sessionId,
         update: {
           sessionUpdate: "agent_message_chunk",
-          content: { type: "text", text: approved ? "APPROVED_OK" : "DECLINED_OK" },
+          content: { type: "text", text: approved ? "APPROVED_" : "DECLINED_" },
         },
       },
     });
+    const childMeta = { "opencode/child-session": { id: "child", parentID: sessionId, depth: 1 } };
+    for (const update of [
+      {
+        sessionUpdate: "agent_message_chunk",
+        _meta: childMeta,
+        content: { type: "text", text: "CHILD REPORT" },
+      },
+      {
+        sessionUpdate: "tool_call",
+        _meta: childMeta,
+        toolCallId: "child:read",
+        title: "Child read",
+        kind: "read",
+        status: "pending",
+      },
+      {
+        sessionUpdate: "tool_call_update",
+        _meta: childMeta,
+        toolCallId: "child:read",
+        status: "completed",
+      },
+      { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "OK" } },
+    ])
+      send({ method: "session/update", params: { sessionId, update } });
     result(activePrompt, { stopReason: "end_turn" });
     activePrompt = undefined;
     return;

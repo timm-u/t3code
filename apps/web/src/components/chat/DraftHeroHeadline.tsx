@@ -1,6 +1,10 @@
 import type { DraftId } from "~/composerDraftStore";
 import { useComposerDraftStore } from "~/composerDraftStore";
-import type { EnvironmentId, ScopedProjectRef } from "@t3tools/contracts";
+import {
+  resolveEnvironmentMachineKind,
+  type EnvironmentId,
+  type ScopedProjectRef,
+} from "@t3tools/contracts";
 import { scopedProjectKey, scopeProjectRef } from "@t3tools/client-runtime/environment";
 import { CloudIcon, FolderPlusIcon, MonitorIcon } from "lucide-react";
 import { useCallback, useMemo } from "react";
@@ -14,10 +18,13 @@ import { selectProjectGroupingSettings } from "~/logicalProject";
 import {
   buildSidebarProjectPickerEntries,
   buildSidebarProjectSnapshots,
+  projectGroupsSpanEnvironments,
 } from "~/sidebarProjectGrouping";
 import { useProjects, useThreadShells } from "~/state/entities";
 import { useEnvironments, usePrimaryEnvironmentId } from "~/state/environments";
 import { isProjectlessProject } from "~/lib/projectless";
+import { ProjectEnvironmentBadge } from "../ProjectEnvironmentBadge";
+import { ProjectFavicon } from "../ProjectFavicon";
 import { sortLogicalProjectsForSidebar } from "../Sidebar.logic";
 import {
   Menu,
@@ -30,6 +37,7 @@ import {
 } from "../ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { stackedThreadToast, toastManager } from "../ui/toast";
+import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 
 interface DraftHeroHeadlineProps {
   readonly draftId: DraftId | null;
@@ -93,6 +101,26 @@ export function DraftHeroHeadline({
         (group) => !group.memberProjects.every((project) => isProjectlessProject(project)),
       ),
     [projectGroups],
+  );
+  // Same-named projects on two machines are only told apart by where they
+  // live, so rows on another machine carry its icon once the catalog spans
+  // more than one environment; a single-machine catalog stays as it was.
+  const showProjectEnvironments = useMemo(
+    () => projectGroupsSpanEnvironments(projectGroups),
+    [projectGroups],
+  );
+  const environmentMachineById = useMemo(
+    () =>
+      new Map(
+        environments.map(
+          (environment) =>
+            [
+              environment.environmentId,
+              resolveEnvironmentMachineKind(environment.serverConfig),
+            ] as const,
+        ),
+      ),
+    [environments],
   );
   const projectPickerEntries = useMemo(
     () =>
@@ -171,8 +199,15 @@ export function DraftHeroHeadline({
             );
             if (!hasExplicitComposerModelSelection(currentDraft)) {
               applyStickyState(draftId);
-              if (project.defaultModelSelection) {
-                setModelSelection(draftId, project.defaultModelSelection, {
+              const environmentSettings = environments.find(
+                (environment) => environment.environmentId === project.environmentId,
+              )?.serverConfig?.settings;
+              const defaultModelSelection = environmentSettings
+                ? resolveProjectSettings(environmentSettings, project.id, project).settings
+                    .defaultModelSelection
+                : project.defaultModelSelection;
+              if (defaultModelSelection) {
+                setModelSelection(draftId, defaultModelSelection, {
                   replaceOptions: true,
                 });
               }
@@ -181,7 +216,13 @@ export function DraftHeroHeadline({
         >
           {projectPickerEntries.map(({ group }) => {
             return (
-              <MenuRadioItem key={group.projectKey} value={group.projectKey} closeOnClick>
+              <MenuRadioItem
+                key={group.projectKey}
+                value={group.projectKey}
+                closeOnClick
+                className="[&>span:last-child]:flex [&>span:last-child]:min-w-0 [&>span:last-child]:items-center [&>span:last-child]:gap-2"
+              >
+                <ProjectFavicon project={group} className="size-4 shrink-0" />
                 <Tooltip>
                   <TooltipTrigger render={<span className="block min-w-0 truncate" />}>
                     {group.displayName}
@@ -190,6 +231,13 @@ export function DraftHeroHeadline({
                     {group.displayName}
                   </TooltipPopup>
                 </Tooltip>
+                {showProjectEnvironments ? (
+                  <ProjectEnvironmentBadge
+                    group={group}
+                    primaryEnvironmentId={primaryEnvironmentId}
+                    machineByEnvironmentId={environmentMachineById}
+                  />
+                ) : null}
               </MenuRadioItem>
             );
           })}

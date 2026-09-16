@@ -58,7 +58,9 @@ describe("OpenCode 2 ACP", () => {
         );
         const completed = yield* Deferred.make<void>();
         const deltas = yield* Ref.make("");
+        const assistantItems = new Set<string>();
         yield* Stream.runForEach(adapter.streamEvents, (event) => {
+          if (event.type === "content.delta" && event.itemId) assistantItems.add(event.itemId);
           if (event.type === "request.opened")
             return adapter.respondToRequest(
               threadId,
@@ -83,6 +85,7 @@ describe("OpenCode 2 ACP", () => {
         yield* Deferred.await(completed);
         yield* Fiber.join(turn);
         expect(yield* Ref.get(deltas)).toBe(decision === "accept" ? "APPROVED_OK" : "DECLINED_OK");
+        expect(assistantItems.size).toBe(1);
         yield* adapter.stopAll();
       }).pipe(
         Effect.provide(

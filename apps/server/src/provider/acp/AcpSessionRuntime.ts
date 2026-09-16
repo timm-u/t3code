@@ -544,7 +544,8 @@ export const make = (
           // explicit lineage routing and must never be flattened into this stream.
           if (
             startState._tag !== "Started" ||
-            notification.sessionId !== startState.result.sessionId
+            notification.sessionId !== startState.result.sessionId ||
+            notification.update._meta?.["opencode/child-session"] !== undefined
           ) {
             return;
           }

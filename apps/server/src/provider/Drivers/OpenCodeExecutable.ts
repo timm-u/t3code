@@ -11,3 +11,8 @@ export function canDiscoverOpenCode2(binaryPath: string): boolean {
 export function isOpenCode2Command(binaryPath: string): boolean {
   return /(?:^|[\\/])opencode2(?:\.exe|\.cmd|\.ps1)?$/i.test(binaryPath.trim());
 }
+
+/** Released v2 uses the same command name as v1. */
+export function isOpenCode2Version(output: string): boolean {
+  return /^(?:opencode\s+)?v?2\.\d+\.\d+(?:[-+][\w.-]+)?$/im.test(output.trim());
+}

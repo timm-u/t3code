@@ -15,7 +15,15 @@ import {
 } from "../acp/OpenCode2AcpSupport.ts";
 import { makeManagedServerProvider } from "../makeManagedServerProvider.ts";
 import { buildServerProvider } from "../providerSnapshot.ts";
-import { makeManualOnlyProviderMaintenanceCapabilities } from "../providerMaintenance.ts";
+import {
+  makePackageManagedProviderMaintenanceResolver,
+  makeCachedProviderMaintenanceResolution,
+  resolveProviderMaintenanceCapabilitiesEffect,
+  enrichProviderSnapshotWithVersionAdvisory,
+} from "../providerMaintenance.ts";
+import * as FileSystem from "effect/FileSystem";
+import * as Path from "effect/Path";
+import { HttpClient } from "effect/unstable/http";
 import {
   makeProviderSnapshotSettingsSource,
   haveProviderSnapshotSettingsChanged,
@@ -30,6 +38,11 @@ import { withInstanceIdentity } from "./instanceIdentity.ts";
 import { mergeProviderInstanceEnvironment } from "../ProviderInstanceEnvironment.ts";
 
 const driver = ProviderDriverKind.make("opencode");
+export const openCode2Maintenance = makePackageManagedProviderMaintenanceResolver({
+  provider: driver,
+  npmPackageName: "@opencode/cli",
+  nativeUpdate: null,
+});
 
 export const makeOpenCode2Instance = Effect.fn("makeOpenCode2Instance")(function* (
   input: ProviderDriverCreateInput<OpenCodeSettings>,
@@ -56,10 +69,19 @@ export const makeOpenCode2Instance = Effect.fn("makeOpenCode2Instance")(function
     driverKind: driver,
     continuationGroupKey: continuationIdentity.continuationKey,
   });
-  const maintenance = makeManualOnlyProviderMaintenanceCapabilities({
-    provider: driver,
-    packageName: "@opencode-ai/cli",
-  });
+  const fileSystem = yield* FileSystem.FileSystem;
+  const pathService = yield* Path.Path;
+  const httpClient = yield* HttpClient.HttpClient;
+  const resolveMaintenance = yield* makeCachedProviderMaintenanceResolution(
+    resolveProviderMaintenanceCapabilitiesEffect(openCode2Maintenance, {
+      binaryPath,
+      env: environment,
+    }).pipe(
+      Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+      Effect.provideService(FileSystem.FileSystem, fileSystem),
+      Effect.provideService(Path.Path, pathService),
+    ),
+  );
   const protocol = {
     provider: driver,
     harness: "OpenCode 2",
@@ -148,7 +170,17 @@ export const makeOpenCode2Instance = Effect.fn("makeOpenCode2Instance")(function
     getSettings: snapshotSettings.getSettings,
     streamSettings: snapshotSettings.streamSettings,
     haveSettingsChanged: haveProviderSnapshotSettingsChanged,
-    resolveMaintenance: () => Effect.succeed(maintenance),
+    resolveMaintenance,
+    enrichSnapshot: ({ settings, snapshot, publishSnapshot }) =>
+      resolveMaintenance().pipe(
+        Effect.flatMap((maintenanceCapabilities) =>
+          enrichProviderSnapshotWithVersionAdvisory(snapshot, maintenanceCapabilities, {
+            enableProviderUpdateChecks: settings.enableProviderUpdateChecks,
+          }),
+        ),
+        Effect.provideService(HttpClient.HttpClient, httpClient),
+        Effect.flatMap(publishSnapshot),
+      ),
     initialSnapshot: () =>
       Effect.map(DateTime.now, (now) =>
         stamp(
