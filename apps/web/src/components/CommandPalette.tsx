@@ -52,7 +52,6 @@ import {
   MonitorIcon,
   MoonIcon,
   PaletteIcon,
-  MonitorIcon,
   CloudIcon,
   SettingsIcon,
   SquareTerminalIcon,

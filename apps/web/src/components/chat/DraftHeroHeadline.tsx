@@ -385,7 +385,10 @@ export function DraftHeroHeadline({
         : "Add a project to start";
 
   return (
-    <h1 aria-label={headingLabel} className="mx-auto w-full max-w-5xl text-center font-normal text-2xl text-foreground tracking-tight sm:text-3xl">
+    <h1
+      aria-label={headingLabel}
+      className="mx-auto w-full max-w-5xl text-center font-normal text-2xl text-foreground tracking-tight sm:text-3xl"
+    >
       {projectless ? (
         <>What can I help with on {environmentSelector}?</>
       ) : hasResolvedProject ? (
