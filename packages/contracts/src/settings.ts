@@ -752,6 +752,31 @@ export const GrokSettings = makeProviderSettingsSchema(
 );
 export type GrokSettings = typeof GrokSettings.Type;
 
+export const CommandCodeSettings = makeProviderSettingsSchema(
+  {
+    // Enable explicitly in the environment where Command Code is installed.
+    enabled: Schema.Boolean.pipe(
+      Schema.withDecodingDefault(Effect.succeed(false)),
+      Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
+    ),
+    binaryPath: makeBinaryPathSetting("command-code").pipe(
+      Schema.annotateKey({
+        title: "Binary path",
+        description: "Path to Command Code CLI. Uses the local Command Code login or CMD_API_KEY.",
+        providerSettingsForm: { placeholder: "command-code", clearWhenEmpty: "omit" },
+      }),
+    ),
+    customModels: Schema.Array(CustomModelSetting).pipe(
+      Schema.withDecodingDefault(Effect.succeed([])),
+      Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
+    ),
+  },
+  {
+    order: ["binaryPath"],
+  },
+);
+export type CommandCodeSettings = typeof CommandCodeSettings.Type;
+
 /**
  * Antigravity ACP auth methods. Personal and Enterprise open a Google sign-in
  * in the browser. The API key and Agent Platform methods take credentials from
