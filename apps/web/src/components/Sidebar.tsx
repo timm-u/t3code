@@ -134,7 +134,6 @@ import { useAcknowledgeThreadWoke, useThreadActions } from "../hooks/useThreadAc
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useTerminalFocus } from "../hooks/useTerminalFocus";
 import { isCommandPaletteOpen, openCommandPalette } from "../commandPaletteBus";
-import { startNewThreadFromContext } from "../lib/chatThreadActions";
 import { useClientSettings } from "../hooks/useSettings";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 import { useLocalStorage } from "../hooks/useLocalStorage";
@@ -195,7 +194,6 @@ import {
   resolveSidebarThreadStatus,
   resolveThreadLastVisitedAt,
   searchSidebarThreads,
-  shouldCreateNewThreadInCurrentProject,
   shouldNavigateAfterThreadPark,
   shouldRecedeSidebarThread,
   resolveWorkingStartedAt,
@@ -4627,30 +4625,11 @@ export default function Sidebar() {
     updateThreadJumpHintsVisibility(shouldShowJumpHintsNow);
   }, [shouldShowJumpHintsNow, updateThreadJumpHintsVisibility]);
 
-  // New thread defaults to the project you're in (active thread's project,
-  // falling back to the top project) — same resolution the command palette
-  // uses. The command palette already offers a "New thread in..." submenu
-  // for multi-project setups.
-  const handleNewThreadClick = useCallback(
-    (event?: ReactMouseEvent) => {
-      // One project: nothing to pick, create immediately. Shift+click creates
-      // directly in the current project even with several projects, skipping
-      // the palette picker.
-      if (shouldCreateNewThreadInCurrentProject(event?.shiftKey ?? false, projectGroups.length)) {
-        if (isMobile) setOpenMobile(false);
-        void startNewThreadFromContext({
-          activeDraftThread: newThreadContext.activeDraftThread,
-          activeThread: newThreadContext.activeThread ?? undefined,
-          defaultProjectRef: newThreadContext.defaultProjectRef,
-          handleNewThread: newThreadContext.handleNewThread,
-        });
-        return;
-      }
-      if (isMobile) setOpenMobile(false);
-      openCommandPalette({ open: "new-thread-in" });
-    },
-    [isMobile, newThreadContext, projectGroups.length, setOpenMobile],
-  );
+  // Keep the machine/project chooser available from the global New button.
+  const handleNewThreadClick = useCallback(() => {
+    if (isMobile) setOpenMobile(false);
+    openCommandPalette({ open: "new-thread-in" });
+  }, [isMobile, setOpenMobile]);
 
   // The button mirrors chat.new: in multi-project setups both route through
   // the command palette's "New thread in..." picker, and in single-project
