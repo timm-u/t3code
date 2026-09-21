@@ -15,7 +15,7 @@ import { AiError, McpProtocol, McpSchema, McpServer, Tool, type Toolkit } from "
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
 import { OrchestratorMcpFailure, PreviewAutomationError } from "@t3tools/contracts";
 
-import packageJson from "../../package.json" with { type: "json" };
+import { SERVER_VERSION } from "../version.ts";
 import * as ServerConfig from "../config.ts";
 import * as DeviceService from "../device/DeviceService.ts";
 import * as HtmlRender from "../htmlRender/HtmlRender.ts";
@@ -845,7 +845,7 @@ export const layerDeviceToolkit = Layer.mergeAll(
 
 export const layerMcpTransport = McpServer.layerHttp({
   name: "T3 Code",
-  version: packageJson.version,
+  version: SERVER_VERSION,
   path: "/mcp",
   protocols: [McpProtocol.v2025_06_18],
 }).pipe(Layer.provide(layerMcpAuthMiddleware));

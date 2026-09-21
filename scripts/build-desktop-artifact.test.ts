@@ -48,6 +48,7 @@ import {
   resolveMacPasskeySigningConfiguration,
   resolveDesktopRuntimeDependencies,
   resolveMergedStageDependencies,
+  resolveDesktopArtifactBuildEnvironment,
   resolveFffNativeDependencies,
   resolveBuildOptions,
   resolveDesktopBuildIconAssets,
@@ -266,6 +267,19 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
   it("switches desktop packaging product names to nightly for nightly builds", () => {
     assert.equal(resolveDesktopProductName("0.0.17"), "T3 Code (Alpha)");
     assert.equal(resolveDesktopProductName("0.0.17-nightly.20260413.42"), "T3 Code (Nightly)");
+  });
+
+  it("injects the artifact version into the bundled web client build", () => {
+    assert.deepStrictEqual(
+      resolveDesktopArtifactBuildEnvironment("0.0.32-nightly.20260805.1005", {
+        APP_VERSION: "0.0.31",
+        EXISTING_VALUE: "kept",
+      }),
+      {
+        APP_VERSION: "0.0.32-nightly.20260805.1005",
+        EXISTING_VALUE: "kept",
+      },
+    );
   });
 
   it("switches desktop packaging icons to the nightly artwork for nightly versions", () => {
