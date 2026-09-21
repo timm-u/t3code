@@ -1,3 +1,4 @@
+import { CommandCodeDriver, type CommandCodeDriverEnv } from "./Drivers/CommandCodeDriver.ts";
 /**
  * BUILT_IN_DRIVERS — the static set of `ProviderDriver`s this build ships
  * with.
@@ -42,6 +43,7 @@ import type { AnyProviderDriver } from "@t3tools/provider-core/server/driver";
 export type BuiltInDriversEnv =
   | AcpRegistryDriverEnv
   | AntigravityDriverEnv
+  | CommandCodeDriverEnv
   | ClaudeDriverEnv
   | CodexDriverEnv
   | CursorDriverEnv
@@ -56,6 +58,7 @@ export type BuiltInDriversEnv =
  * iteration order has no functional effect on instance lookup.
  */
 export const BUILT_IN_DRIVERS: ReadonlyArray<AnyProviderDriver<BuiltInDriversEnv>> = [
+  CommandCodeDriver,
   CodexDriver,
   ClaudeDriver,
   CursorDriver,
