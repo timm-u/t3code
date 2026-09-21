@@ -46,6 +46,8 @@ const TIMELINE_CONTENT_MAX_WIDTH = 768;
 const TIMELINE_MINIMAP_PERSISTENT_GUTTER = 48;
 
 function singleToolCallLabel(entry: WorkLogEntry): string {
+  const outputLabel = structuredToolOutputLabel(entry);
+  if (outputLabel) return outputLabel;
   const toolPresentation = resolveWorkEntryToolPresentation(entry, "completed");
   if (toolPresentation) return toolPresentation.displayName;
   const command = entry.command?.trim();
@@ -55,6 +57,8 @@ function singleToolCallLabel(entry: WorkLogEntry): string {
 }
 
 export function workEntryDisplayLabel(entry: WorkLogEntry, workspaceRoot: string | undefined) {
+  const outputLabel = structuredToolOutputLabel(entry);
+  if (outputLabel) return outputLabel;
   const toolPresentation = resolveWorkEntryToolPresentation(entry);
   if (toolPresentation) return toolPresentation.displayName;
   if (entry.command) return entry.command;
@@ -68,6 +72,32 @@ export function workEntryDisplayLabel(entry: WorkLogEntry, workspaceRoot: string
   }
   const heading = normalizeCompactToolLabel(entry.toolTitle || entry.label);
   return `${heading.charAt(0).toUpperCase()}${heading.slice(1)}`;
+}
+
+/** Tool payloads belong in the disclosure, never in its compact heading. */
+function structuredToolOutputLabel(entry: WorkLogEntry): string | undefined {
+  if (entry.command) return undefined;
+  const candidates = [entry.detail, entry.toolTitle, entry.label];
+  const subagent = candidates.find((value) => /^\s*<subagent\b/i.test(value ?? ""));
+  if (subagent) {
+    const state = entry.toolLifecycleStatus;
+    if (state === "failed") return "Delegated task failed";
+    if (state === "stopped" || state === "declined") return "Delegated task stopped";
+    // The payload can retain its outcome when older events have no lifecycle status.
+    if (state === "completed" || /\bstate=["']completed["']/i.test(subagent)) {
+      return "Delegated task completed";
+    }
+    return "Delegated task";
+  }
+  if (candidates.some((value) => /^\s*\[Earlier output truncated\]/i.test(value ?? ""))) {
+    const heading = candidates
+      .slice(1)
+      .find((value) => value && !/^\s*\[Earlier output truncated\]/i.test(value));
+    return heading && !/^(tool|tool call)$/i.test(heading)
+      ? normalizeCompactToolLabel(heading)
+      : "Tool output";
+  }
+  return undefined;
 }
 
 export function liveWorkEntryLabel(
@@ -393,6 +423,7 @@ export type MessagesTimelineRow =
       showAssistantMeta: boolean;
       showAssistantCopyButton: boolean;
       assistantCopyStreaming: boolean;
+      assistantPresentation?: "progress" | "answer" | "partial";
       assistantTurnDiffSummary?: TurnDiffSummary | undefined;
       revertTurnCount?: number | undefined;
     }
@@ -769,6 +800,8 @@ function deriveTurnFolds(input: {
 
     const isLatestInterruptedTurn =
       input.latestTurn?.turnId === turnId && input.latestTurn.state === "interrupted";
+    const isLatestFailedTurn =
+      input.latestTurn?.turnId === turnId && input.latestTurn.state === "error";
     // A turn cut short by a steer leaves trailing work entries behind its
     // terminal message — take whichever ended last.
     const lastEntryEnd =
@@ -788,9 +821,13 @@ function deriveTurnFolds(input: {
       ? duration
         ? `You stopped after ${duration}`
         : "You stopped this response"
-      : duration
-        ? `Worked for ${duration}`
-        : "Worked";
+      : isLatestFailedTurn
+        ? duration
+          ? `Stopped with an error after ${duration}`
+          : "Stopped with an error"
+        : duration
+          ? `Worked for ${duration}`
+          : "Worked";
 
     foldsByAnchorEntryId.set(firstHiddenEntry.id, {
       turnId,
@@ -1379,6 +1416,13 @@ export function deriveMessagesTimelineRows(input: {
       showAssistantMeta,
       showAssistantCopyButton: showAssistantMeta,
       assistantCopyStreaming: timelineEntry.message.streaming || assistantResponseStillInProgress,
+      assistantPresentation:
+        !showAssistantMeta || timelineEntry.message.streaming
+          ? "progress"
+          : input.latestTurn?.turnId === timelineEntry.message.turnId &&
+              (input.latestTurn.state === "interrupted" || input.latestTurn.state === "error")
+            ? "partial"
+            : "answer",
       assistantTurnDiffSummary:
         timelineEntry.message.role === "assistant"
           ? turnDiffSummaryByAssistantMessageId.get(timelineEntry.message.id)
@@ -1668,6 +1712,7 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
         a.showAssistantCopyButton === bm.showAssistantCopyButton &&
         a.assistantCopyStreaming === bm.assistantCopyStreaming &&
         a.assistantTurnDiffSummary === bm.assistantTurnDiffSummary &&
+        a.assistantPresentation === bm.assistantPresentation &&
         a.revertTurnCount === bm.revertTurnCount
       );
     }

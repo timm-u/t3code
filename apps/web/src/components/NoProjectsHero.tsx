@@ -1,4 +1,4 @@
-import { PlusIcon } from "lucide-react";
+import { PlusIcon, MessageSquareIcon } from "lucide-react";
 import { useCallback } from "react";
 
 import { openCommandPalette } from "../commandPaletteBus";
@@ -8,6 +8,8 @@ import { SidebarInset } from "./ui/sidebar";
 
 export function NoProjectsHero() {
   const openAddProject = useCallback(() => openCommandPalette({ open: "add-project" }), []);
+
+  const openNewThread = useCallback(() => openCommandPalette({ open: "new-thread-in" }), []);
 
   return (
     <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground">
@@ -19,12 +21,16 @@ export function NoProjectsHero() {
                 What should we work on?
               </EmptyTitle>
               <EmptyDescription className="mt-2 text-sm text-muted-foreground/78">
-                Add a project to start your first thread.
+                Start with a project, or open a projectless scratch thread.
               </EmptyDescription>
-              <div className="mt-6 flex justify-center">
+              <div className="mt-6 flex flex-wrap justify-center gap-2">
                 <Button size="sm" onClick={openAddProject}>
                   <PlusIcon className="size-4" />
                   Add project
+                </Button>
+                <Button size="sm" variant="outline" onClick={openNewThread}>
+                  <MessageSquareIcon className="size-4" />
+                  No project
                 </Button>
               </div>
             </EmptyHeader>

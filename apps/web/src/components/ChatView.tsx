@@ -175,7 +175,7 @@ import {
 } from "../types";
 import { useTheme } from "../hooks/useTheme";
 import { writeTextToClipboard } from "../hooks/useCopyToClipboard";
-import { isCommandPaletteOpen } from "../commandPaletteBus";
+import { isCommandPaletteOpen, openCommandPalette } from "../commandPaletteBus";
 import { subscribeSnapShotComposerFocus } from "../lib/desktopSnapShot";
 import { buildTemporaryWorktreeBranchName } from "@t3tools/shared/git";
 import { useMediaQuery } from "../hooks/useMediaQuery";
@@ -262,6 +262,7 @@ import {
   NO_PROVIDER_MODEL_SELECTION,
   sortProviderInstanceEntries,
 } from "../providerInstances";
+import { isProjectlessProject } from "../lib/projectless";
 import {
   useClientSettings,
   useClientSettingsHydrated,
@@ -2281,6 +2282,9 @@ export default function ChatView(props: ChatViewProps) {
       params: { projectKey: activeDraftLogicalProjectKey },
     });
   }, [activeDraftLogicalProjectKey, navigate]);
+  const handleOpenNewThreadPicker = useCallback(() => {
+    openCommandPalette({ open: "new-thread-in" });
+  }, []);
   const activeEnvironmentShell = useEnvironmentQuery(
     activeThread ? environmentShell.stateAtom(activeThread.environmentId) : null,
   );
@@ -3717,6 +3721,7 @@ export default function ChatView(props: ChatViewProps) {
     : null;
   const hasTimelineTopBanner = Boolean(visibleThreadError) || visibleProviderStatus !== null;
   const activeProjectCwd = activeProject?.workspaceRoot ?? null;
+  const activeProjectIsProjectless = activeProject !== null && isProjectlessProject(activeProject);
   const activeThreadWorktreePath = activeThread?.worktreePath ?? null;
   const activeWorkspaceRoot = activeThreadWorktreePath ?? activeProjectCwd ?? undefined;
   useLayoutEffect(() => {
@@ -9838,6 +9843,7 @@ export default function ChatView(props: ChatViewProps) {
             {...(activeDraftLogicalProjectKey
               ? { onOpenProjectSettings: handleOpenDraftProjectSettings }
               : {})}
+            onOpenNewThreadPicker={handleOpenNewThreadPicker}
             onRunProjectScript={runProjectScript}
             onAddProjectScript={saveProjectScript}
             onUpdateProjectScript={updateProjectScript}

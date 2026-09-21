@@ -124,6 +124,45 @@ describe("streaming row projection", () => {
     return { messages, work, timeline, input, time, turnId, historyTurnId };
   }
 
+  it.each(["completed", "interrupted", "error"] as const)(
+    "keeps verdict-like text provisional until the turn settles as %s",
+    (state) => {
+      const initial = fixture("## Verdict\nEverything is done.");
+      const previous = deriveMessagesTimelineRowsWithState(initial.input);
+      const active = previous.rows.find(
+        (row) => row.kind === "message" && row.message.id === "live-assistant",
+      );
+      expect(active).toMatchObject({
+        assistantPresentation: "progress",
+        showAssistantCopyButton: false,
+      });
+      const messages = initial.messages.map((message) => ({ ...message, streaming: false }));
+      const settled = deriveMessagesTimelineRowsWithState(
+        {
+          ...initial.input,
+          timelineEntries: deriveTimelineEntries(messages, [], initial.work),
+          latestTurn: {
+            turnId: initial.turnId,
+            state,
+            startedAt: initial.time(5),
+            completedAt: initial.time(10),
+          },
+          runningTurnId: null,
+          isWorking: false,
+        },
+        previous,
+      );
+      const answer = settled.rows.find(
+        (row) => row.kind === "message" && row.message.id === "live-assistant",
+      );
+      expect(answer).toMatchObject({
+        assistantPresentation: state === "completed" ? "answer" : "partial",
+      });
+      expect(settled.rows.some((row) => row.kind === "working")).toBe(false);
+      expect(settled.rows.some((row) => row.kind === "turn-fold")).toBe(true);
+    },
+  );
+
   it.each([
     ["", "Now visible"],
     [" \n", "Now visible"],
@@ -690,6 +729,29 @@ describe("work entry labels", () => {
     label: "Tool call",
     tone: "tool" as const,
   };
+
+  it("keeps subagent transport metadata inside tool details", () => {
+    const detail = '<subagent sessionID="ses_private" state="completed"> Review results';
+    const delegated = { ...entry, detail };
+    expect(workEntryDisplayLabel(delegated, undefined)).toBe("Delegated task completed");
+    expect(liveWorkEntryLabel(delegated, undefined, true)).toBe("Delegated task completed");
+    expect(workEntryDisplayLabel({ ...delegated, toolLifecycleStatus: "failed" }, undefined)).toBe(
+      "Delegated task failed",
+    );
+    expect(delegated.detail).toBe(detail);
+  });
+
+  it("does not use truncated output as the compact tool heading", () => {
+    const truncated = { ...entry, detail: "[Earlier output truncated] 135: if (comment) ..." };
+    expect(workEntryDisplayLabel(truncated, undefined)).toBe("Tool output");
+    expect(liveWorkEntryLabel(truncated, undefined, false)).toBe("Tool output");
+    expect(workEntryDisplayLabel({ ...truncated, toolTitle: "Read file" }, undefined)).toBe(
+      "Read file",
+    );
+    expect(workEntryDisplayLabel({ ...truncated, command: "git diff" }, undefined)).toBe(
+      "git diff",
+    );
+  });
 
   it.each([
     ["inProgress", "Clicking in the preview browser"],

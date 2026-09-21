@@ -52,7 +52,10 @@ import {
   MonitorIcon,
   MoonIcon,
   PaletteIcon,
+  MonitorIcon,
+  CloudIcon,
   SettingsIcon,
+  SquareTerminalIcon,
   SquarePenIcon,
   SunIcon,
   TextSearchIcon,
@@ -76,6 +79,7 @@ import { useDesktopLocalBootstraps } from "../connection/useDesktopLocalBootstra
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useOpenPanelPullRequestUrl } from "../hooks/useOpenPanelPullRequestUrl";
 import { writeTextToClipboard } from "../hooks/useCopyToClipboard";
+import { useStartProjectlessThread } from "../hooks/useStartProjectlessThread";
 import { useClientSettings } from "../hooks/useSettings";
 import { useTheme } from "../hooks/useTheme";
 import { useCustomThemes } from "../hooks/useCustomThemes";
@@ -188,6 +192,7 @@ import { ComposerHandleContext, useComposerHandleContext } from "../composerHand
 import type { ChatComposerHandle } from "./chat/ChatComposer";
 import { getProjectOrderKey, selectProjectGroupingSettings } from "../logicalProject";
 import { legacyProjectCwdPreferenceKey, useUiStateStore } from "../uiStateStore";
+import { isProjectlessProject } from "../lib/projectless";
 import {
   buildSidebarProjectPickerEntries,
   buildSidebarProjectSnapshots,
@@ -717,6 +722,7 @@ function OpenCommandPaletteDialog(props: {
   const availableSettingsSearchItems = useAvailableSettingsSearchItems();
   const { activeDraftThread, activeThread, defaultProjectRef, handleNewThread } =
     useHandleNewThread();
+  const startProjectlessThread = useStartProjectlessThread();
   const projects = useProjects();
   const referenceThreadRef =
     pathname === "/pull-requests"
@@ -980,6 +986,10 @@ function OpenCommandPaletteDialog(props: {
   }, [environments]);
   const defaultAddProjectEnvironmentId =
     addProjectEnvironmentOptions.find((option) => option.isConnected)?.environmentId ?? null;
+  const connectedAddProjectEnvironmentOptions = useMemo(
+    () => addProjectEnvironmentOptions.filter((environment) => environment.isConnected),
+    [addProjectEnvironmentOptions],
+  );
   const wslAddProjectEnvironmentOption = useMemo(
     () =>
       addProjectEnvironmentOptions.find((option) => {
@@ -1260,7 +1270,7 @@ function OpenCommandPaletteDialog(props: {
     () =>
       enumerateCommandPaletteItems(
         buildProjectActionItems({
-          projects: pickerProjects,
+          projects: pickerProjects.filter((project) => !isProjectlessProject(project)),
           valuePrefix: "new-thread-in",
           searchTerms: (project) => {
             const group = projectGroupByTargetKey.get(`${project.environmentId}:${project.id}`);
@@ -1320,6 +1330,139 @@ function OpenCommandPaletteDialog(props: {
       projectGroupByTargetKey,
     ],
   );
+
+  const runProjectlessThread = useCallback(
+    async (environmentId: EnvironmentId) => {
+      try {
+        await startProjectlessThread(environmentId);
+        setOpen(false);
+      } catch (cause) {
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Could not start a projectless thread",
+            description: cause instanceof Error ? cause.message : "An unexpected error occurred.",
+          }),
+        );
+      }
+    },
+    [setOpen, startProjectlessThread],
+  );
+
+  const projectlessEnvironmentItems = useMemo<CommandPaletteActionItem[]>(
+    () =>
+      addProjectEnvironmentOptions
+        .filter((environment) => environment.isConnected)
+        .map((environment) => ({
+          kind: "action",
+          value: `new-thread-projectless:${environment.environmentId}`,
+          searchTerms: [
+            "no project",
+            "projectless",
+            "scratch",
+            environment.label,
+            environment.environmentId,
+          ],
+          title: environment.label,
+          description: environment.isPrimary ? "This device" : "T3 Connect environment",
+          icon: environment.isPrimary ? (
+            <MonitorIcon className={ITEM_ICON_CLASS} />
+          ) : (
+            <CloudIcon className={ITEM_ICON_CLASS} />
+          ),
+          run: async () => {
+            await runProjectlessThread(environment.environmentId);
+          },
+        })),
+    [addProjectEnvironmentOptions, runProjectlessThread],
+  );
+
+  const projectlessThreadItem = useMemo<
+    CommandPaletteActionItem | CommandPaletteSubmenuItem | null
+  >(() => {
+    if (projectlessEnvironmentItems.length === 0) return null;
+    if (projectlessEnvironmentItems.length === 1) {
+      const environmentItem = projectlessEnvironmentItems[0];
+      if (!environmentItem) return null;
+      return {
+        ...environmentItem,
+        value: "action:new-projectless-thread",
+        title: "No project",
+        description: "Start in a clean scratch workspace",
+        icon: <MessageSquareIcon className={ITEM_ICON_CLASS} />,
+      };
+    }
+    return {
+      kind: "submenu",
+      value: "action:new-projectless-thread",
+      searchTerms: ["no project", "projectless", "scratch", "machine", "environment"],
+      title: "No project",
+      description: "Choose a machine and start in a clean scratch workspace",
+      icon: <MessageSquareIcon className={ITEM_ICON_CLASS} />,
+      addonIcon: <MessageSquareIcon className={ADDON_ICON_CLASS} />,
+      groups: [
+        {
+          value: "environments",
+          label: "Run on",
+          items: projectlessEnvironmentItems,
+        },
+      ],
+    };
+  }, [projectlessEnvironmentItems]);
+
+  const openTerminalOnEnvironment = useCallback(
+    async (environmentId: EnvironmentId) => {
+      try {
+        await startProjectlessThread(environmentId, { openTerminal: true });
+        setOpen(false);
+      } catch (cause) {
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Could not open terminal",
+            description: cause instanceof Error ? cause.message : "An unexpected error occurred.",
+          }),
+        );
+      }
+    },
+    [setOpen, startProjectlessThread],
+  );
+
+  const terminalEnvironmentItems = useMemo<CommandPaletteActionItem[]>(
+    () =>
+      connectedAddProjectEnvironmentOptions.map((environment) => ({
+        kind: "action",
+        value: `open-terminal:${environment.environmentId}`,
+        searchTerms: ["terminal", "shell", "console", environment.label, environment.environmentId],
+        title: environment.label,
+        description: environment.isPrimary
+          ? "Open a terminal on this device"
+          : "Open a terminal through T3 Connect",
+        icon: environment.isPrimary ? (
+          <MonitorIcon className={ITEM_ICON_CLASS} />
+        ) : (
+          <CloudIcon className={ITEM_ICON_CLASS} />
+        ),
+        run: async () => {
+          await openTerminalOnEnvironment(environment.environmentId);
+        },
+      })),
+    [connectedAddProjectEnvironmentOptions, openTerminalOnEnvironment],
+  );
+
+  const terminalLauncherItem = useMemo<CommandPaletteSubmenuItem | null>(() => {
+    if (terminalEnvironmentItems.length === 0) return null;
+    return {
+      kind: "submenu",
+      value: "action:open-terminal-on",
+      searchTerms: ["terminal", "shell", "console", "remote", "machine"],
+      title: "Open terminal on...",
+      description: "Choose any connected machine",
+      icon: <SquareTerminalIcon className={ITEM_ICON_CLASS} />,
+      addonIcon: <SquareTerminalIcon className={ADDON_ICON_CLASS} />,
+      groups: [{ value: "environments", label: "Machines", items: terminalEnvironmentItems }],
+    };
+  }, [terminalEnvironmentItems]);
 
   const allThreadItems = useMemo(
     () =>
@@ -1676,6 +1819,57 @@ function OpenCommandPaletteDialog(props: {
     startAddProjectSourceSelection,
   ]);
 
+  const newProjectFolderEnvironmentItems = useMemo<CommandPaletteActionItem[]>(
+    () =>
+      connectedAddProjectEnvironmentOptions.map((environment) => ({
+        kind: "action",
+        value: `new-project-folder:${environment.environmentId}`,
+        searchTerms: [
+          "new project",
+          "folder",
+          "directory",
+          "browse",
+          "create",
+          environment.label,
+          environment.environmentId,
+        ],
+        title: environment.label,
+        description: environment.isPrimary
+          ? "Browse or create a folder on this device"
+          : "Browse or create a folder through T3 Connect",
+        icon: environment.isPrimary ? (
+          <MonitorIcon className={ITEM_ICON_CLASS} />
+        ) : (
+          <CloudIcon className={ITEM_ICON_CLASS} />
+        ),
+        keepOpen: true,
+        run: async () => {
+          await startAddProjectBrowse(environment.environmentId);
+        },
+      })),
+    [connectedAddProjectEnvironmentOptions, startAddProjectBrowse],
+  );
+
+  const newProjectFolderItem = useMemo<CommandPaletteSubmenuItem | null>(() => {
+    if (newProjectFolderEnvironmentItems.length === 0) return null;
+    return {
+      kind: "submenu",
+      value: "action:new-project-folder",
+      searchTerms: ["new project", "folder", "directory", "browse", "create", "machine"],
+      title: "Choose or create project folder",
+      description: "Browse the filesystem on any connected machine",
+      icon: <FolderPlusIcon className={ITEM_ICON_CLASS} />,
+      addonIcon: <FolderPlusIcon className={ADDON_ICON_CLASS} />,
+      groups: [
+        {
+          value: "environments",
+          label: "Create project on",
+          items: newProjectFolderEnvironmentItems,
+        },
+      ],
+    };
+  }, [newProjectFolderEnvironmentItems]);
+
   useLayoutEffect(() => {
     if (openIntent?.kind !== "search") return;
     browseNavigation.invalidate();
@@ -1697,7 +1891,10 @@ function OpenCommandPaletteDialog(props: {
   }, [clearOpenIntent, openAddProjectFlow, openIntent]);
 
   useLayoutEffect(() => {
-    if (openIntent?.kind !== "new-thread-in" || projectThreadItems.length === 0) {
+    if (
+      openIntent?.kind !== "new-thread-in" ||
+      (projectThreadItems.length === 0 && projectlessThreadItem === null)
+    ) {
       return;
     }
     clearOpenIntent();
@@ -1718,11 +1915,42 @@ function OpenCommandPaletteDialog(props: {
     pushPaletteView({
       addonIcon: <SquarePenIcon className={ADDON_ICON_CLASS} />,
       groups: [
-        {
-          value: "projects",
-          label: "Projects",
-          items: enumerateCommandPaletteItems(prioritized),
-        },
+        ...(projectlessThreadItem
+          ? [
+              {
+                value: "projectless",
+                label: "Start anywhere",
+                items: [projectlessThreadItem],
+              },
+            ]
+          : []),
+        ...(terminalLauncherItem
+          ? [
+              {
+                value: "terminal",
+                label: "Terminal",
+                items: [terminalLauncherItem],
+              },
+            ]
+          : []),
+        ...(newProjectFolderItem
+          ? [
+              {
+                value: "new-project",
+                label: "New project",
+                items: [newProjectFolderItem],
+              },
+            ]
+          : []),
+        ...(prioritized.length > 0
+          ? [
+              {
+                value: "projects",
+                label: "Projects · machine shown below",
+                items: enumerateCommandPaletteItems(prioritized),
+              },
+            ]
+          : []),
       ],
     });
   }, [
@@ -1731,11 +1959,26 @@ function OpenCommandPaletteDialog(props: {
     currentProjectEnvironmentId,
     currentProjectId,
     openIntent,
+    newProjectFolderItem,
+    projectlessThreadItem,
     projectThreadItems,
     pushPaletteView,
+    terminalLauncherItem,
   ]);
 
   const actionItems: Array<CommandPaletteActionItem | CommandPaletteSubmenuItem> = [];
+
+  if (projectlessThreadItem) {
+    actionItems.push(projectlessThreadItem);
+  }
+
+  if (terminalLauncherItem) {
+    actionItems.push(terminalLauncherItem);
+  }
+
+  if (newProjectFolderItem) {
+    actionItems.push(newProjectFolderItem);
+  }
 
   if (projects.length > 0) {
     const activeProjectTitle =

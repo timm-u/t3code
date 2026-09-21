@@ -28,8 +28,8 @@ import {
   applyGrokAcpModelSelection,
   currentGrokModelIdFromSessionSetup,
   currentGrokReasoningEffortFromSessionSetup,
-  makeGrokAcpRuntime,
-  resolveGrokAcpBaseModelId,
+  makeGrokAcpRuntime as makeDefaultGrokAcpRuntime,
+  resolveGrokAcpBaseModelId as resolveDefaultGrokAcpBaseModelId,
 } from "../provider/acp/GrokAcpSupport.ts";
 
 const GROK_TIMEOUT_MS = 180_000;
@@ -39,7 +39,13 @@ const isTextGenerationError = Schema.is(TextGenerationError);
 export const makeGrokTextGeneration = Effect.fn("makeGrokTextGeneration")(function* (
   grokSettings: GrokSettings,
   environment: NodeJS.ProcessEnv = process.env,
+  protocol?: {
+    readonly makeRuntime: typeof makeDefaultGrokAcpRuntime;
+    readonly resolveModel: typeof resolveDefaultGrokAcpBaseModelId;
+  },
 ) {
+  const makeGrokAcpRuntime = protocol?.makeRuntime ?? makeDefaultGrokAcpRuntime;
+  const resolveGrokAcpBaseModelId = protocol?.resolveModel ?? resolveDefaultGrokAcpBaseModelId;
   const crypto = yield* Crypto.Crypto;
   const commandSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
 

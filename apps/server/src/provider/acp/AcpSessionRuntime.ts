@@ -93,7 +93,8 @@ export interface AcpSessionRuntimeOptions {
     readonly name: string;
     readonly version: string;
   };
-  readonly authMethodId: string;
+  /** Null uses the agent's existing credentials without starting an interactive login. */
+  readonly authMethodId: string | null;
   readonly mcpServers?: ReadonlyArray<EffectAcpSchema.McpServer>;
   /** Extra workspace roots the agent may read and write besides `cwd`. */
   readonly additionalDirectories?: ReadonlyArray<string>;
@@ -574,7 +575,8 @@ export const make = (
           // explicit lineage routing and must never be flattened into this stream.
           if (
             startState._tag !== "Started" ||
-            notification.sessionId !== startState.result.sessionId
+            notification.sessionId !== startState.result.sessionId ||
+            notification.update._meta?.["opencode/child-session"] !== undefined
           ) {
             return;
           }
@@ -737,15 +739,17 @@ export const make = (
     const startOnce = Effect.gen(function* () {
       const initializeResult = yield* sendInitialize;
 
-      const authenticatePayload = {
-        methodId: options.authMethodId,
-      } satisfies EffectAcpSchema.AuthenticateRequest;
+      if (options.authMethodId !== null) {
+        const authenticatePayload = {
+          methodId: options.authMethodId,
+        } satisfies EffectAcpSchema.AuthenticateRequest;
 
-      yield* runLoggedRequest(
-        "authenticate",
-        authenticatePayload,
-        acp.agent.authenticate(authenticatePayload),
-      );
+        yield* runLoggedRequest(
+          "authenticate",
+          authenticatePayload,
+          acp.agent.authenticate(authenticatePayload),
+        );
+      }
 
       let sessionId: string;
       let sessionSetupResult:
@@ -1202,10 +1206,14 @@ const handleSessionUpdate = ({
     }
     for (const event of parsed.events) {
       if (event._tag === "ToolCallUpdated") {
-        yield* closeActiveAssistantSegment({
-          queue,
-          assistantSegmentRef,
-        });
+        // A new call ends a text segment. Background output/status updates do
+        // not: they can arrive in the middle of a sentence the agent is streaming.
+        if (params.update.sessionUpdate === "tool_call") {
+          yield* closeActiveAssistantSegment({
+            queue,
+            assistantSegmentRef,
+          });
+        }
         const { merged, decision } = yield* Ref.modify(toolCallsRef, (current) => {
           const tracked = current.get(event.toolCall.toolCallId);
           const previous = tracked?.state;

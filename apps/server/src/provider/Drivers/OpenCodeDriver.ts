@@ -13,6 +13,13 @@
  * @module provider/Drivers/OpenCodeDriver
  */
 import { OpenCodeSettings, ProviderDriverKind } from "@t3tools/contracts";
+import { resolveCommandPath } from "@t3tools/shared/shell";
+import { makeOpenCode2Instance } from "./OpenCode2Instance.ts";
+import {
+  canDiscoverOpenCode2,
+  isOpenCode2Command,
+  isOpenCode2Version,
+} from "./OpenCodeExecutable.ts";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -121,6 +128,48 @@ export const OpenCodeDriver: ProviderDriver<OpenCodeSettings, OpenCodeDriverEnv>
         continuationGroupKey: continuationIdentity.continuationKey,
       });
       const effectiveConfig = { ...config, enabled } satisfies OpenCodeSettings;
+      if (!effectiveConfig.serverUrl.trim()) {
+        const configuredBinary = effectiveConfig.binaryPath.trim() || "opencode";
+        const defaultBinary = canDiscoverOpenCode2(configuredBinary);
+        const resolvedBinary = yield* resolveCommandPath(configuredBinary, {
+          env: processEnv,
+        }).pipe(Effect.catch(() => Effect.succeed(null)));
+        const releasedBinary =
+          resolvedBinary ??
+          (defaultBinary
+            ? yield* resolveCommandPath("opencode", { env: processEnv }).pipe(
+                Effect.orElseSucceed(() => null),
+              )
+            : null);
+        const detectedV2 =
+          effectiveConfig.enabled && releasedBinary
+            ? yield* openCodeRuntime
+                .runOpenCodeCommand({
+                  binaryPath: releasedBinary,
+                  args: ["--version"],
+                  environment: processEnv,
+                })
+                .pipe(
+                  Effect.timeout("5 seconds"),
+                  Effect.map((result) => isOpenCode2Version(result.stdout)),
+                  Effect.orElseSucceed(() => false),
+                )
+            : false;
+        const v2Path = isOpenCode2Command(configuredBinary)
+          ? configuredBinary
+          : detectedV2
+            ? releasedBinary
+            : defaultBinary && !releasedBinary
+              ? yield* resolveCommandPath("opencode2", { env: processEnv }).pipe(
+                  Effect.orElseSucceed(() => null),
+                )
+              : null;
+        if (v2Path)
+          return yield* makeOpenCode2Instance(
+            { instanceId, displayName, accentColor, environment, enabled, config },
+            v2Path,
+          );
+      }
       const resolveMaintenance = yield* makeCachedProviderMaintenanceResolution(
         resolveProviderMaintenanceCapabilitiesEffect(UPDATE, {
           binaryPath: effectiveConfig.binaryPath,
