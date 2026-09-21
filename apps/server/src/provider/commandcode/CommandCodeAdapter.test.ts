@@ -62,7 +62,7 @@ describe("Command Code", () => {
   });
   it("reads CLI model IDs without mistaking headings for models", () => {
     const models = parseCommandCodeModels(
-      "Available models  ·  2 models\nOpen Source\ndeepseek/v4  Fast (default)\nclaude-sonnet-4-6  Reasoning\n",
+      "Available models  ·  2 models\nOpen Source\ndeepseek/v4  Fast (default)\nclaude-sonnet-4-6  Reasoning\nDocs:  https://commandcode.ai/docs/reference/cli/models\n",
     );
     expect(models.map((x) => x.slug)).toEqual(["deepseek/v4", "claude-sonnet-4-6"]);
     expect(models[0]?.isDefault).toBe(true);
