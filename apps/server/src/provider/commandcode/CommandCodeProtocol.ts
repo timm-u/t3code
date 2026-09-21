@@ -74,7 +74,7 @@ export function parseCommandCodeModels(text: string): ReadonlyArray<ServerProvid
   const seen = new Set<string>();
   for (const line of text.replace(/\x1b\[[0-9;]*m/g, "").split(/\r?\n/)) {
     const match = /^([a-z0-9][a-z0-9._:/-]+)\s{2,}(.+)$/i.exec(line.trim());
-    if (!match || seen.has(match[1]!)) continue;
+    if (!match || match[1]!.endsWith(":") || seen.has(match[1]!)) continue;
     const slug = match[1]!;
     seen.add(slug);
     models.push({
