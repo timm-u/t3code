@@ -41,10 +41,6 @@ export const CommandCodeStatus = Schema.Struct({
   authenticated: Schema.Boolean,
   version: Schema.String,
 });
-export const CommandCodeResume = Schema.Struct({
-  schemaVersion: Schema.Literal(1),
-  sessionId: Schema.String.check(Schema.isMinLength(1)),
-});
 
 export function commandCodeArgs(input: {
   model?: string | undefined;

@@ -11,6 +11,7 @@ import * as BackgroundPolicy from "../../background/BackgroundPolicy.ts";
 import { ServerConfig } from "../../config.ts";
 import * as ProcessRunner from "../../processRunner.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
+import { IdAllocatorV2 } from "../../orchestration-v2/IdAllocator.ts";
 import { makeCommandCodeTextGeneration } from "../../textGeneration/CommandCodeTextGeneration.ts";
 import { makeCommandCodeAdapter } from "../commandcode/CommandCodeAdapter.ts";
 import { CommandCodeStatus, parseCommandCodeModels } from "../commandcode/CommandCodeProtocol.ts";
@@ -40,6 +41,7 @@ export const commandCodeMaintenance = makePackageManagedProviderMaintenanceResol
   nativeUpdate: null,
 });
 export type CommandCodeDriverEnv =
+  | IdAllocatorV2
   | BackgroundPolicy.BackgroundPolicy
   | ChildProcessSpawner.ChildProcessSpawner
   | Crypto.Crypto
@@ -212,7 +214,7 @@ export const CommandCodeDriver: ProviderDriver<CommandCodeSettings, CommandCodeD
         driverKind: driver,
         continuationIdentity,
         snapshot,
-        adapter,
+        orchestrationAdapter: adapter,
         textGeneration,
       };
     }),

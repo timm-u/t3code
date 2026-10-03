@@ -1,4 +1,3 @@
-import { TerminalIcon } from "lucide-react";
 import {
   AcpRegistrySettings,
   AntigravitySettings,
@@ -52,7 +51,6 @@ const PROVIDER_CLIENT_DEFINITIONS: readonly ProviderClientDefinition[] = [
   {
     value: ProviderDriverKind.make("commandcode"),
     label: "Command Code",
-    icon: TerminalIcon,
     settingsSchema: CommandCodeSettings,
   },
   {
