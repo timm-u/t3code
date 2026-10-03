@@ -3,7 +3,6 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
-import { ProviderAdapterRequestError } from "../Errors.ts";
 import { collectUint8StreamText } from "../../stream/collectUint8StreamText.ts";
 import {
   decodeCommandCodeFrame,
@@ -11,7 +10,15 @@ import {
   type CommandCodeResult,
 } from "./CommandCodeProtocol.ts";
 
-const isRequestError = Schema.is(ProviderAdapterRequestError);
+export class CommandCodeProcessError extends Schema.TaggedError<CommandCodeProcessError>()(
+  "CommandCodeProcessError",
+  { detail: Schema.String, cause: Schema.optional(Schema.Defect()) },
+) {
+  override get message(): string {
+    return this.detail;
+  }
+}
+const isRequestError = Schema.is(CommandCodeProcessError);
 
 export const makeCommandCodeRunner = Effect.fn("makeCommandCodeRunner")(function* (
   binaryPath: string,
@@ -59,15 +66,11 @@ export const makeCommandCodeRunner = Effect.fn("makeCommandCodeRunner")(function
         { concurrency: "unbounded" },
       );
       if (!result)
-        return yield* new ProviderAdapterRequestError({
-          provider: "commandcode",
-          method: "print",
+        return yield* new CommandCodeProcessError({
           detail: `Command Code exited (${Number(code)}) without a result. ${stderr.text.trim()}`,
         });
       if (Number(code) !== 0 && result.subtype === "success")
-        return yield* new ProviderAdapterRequestError({
-          provider: "commandcode",
-          method: "print",
+        return yield* new CommandCodeProcessError({
           detail: `Command Code exited with code ${Number(code)}.`,
         });
       return result;
@@ -76,9 +79,7 @@ export const makeCommandCodeRunner = Effect.fn("makeCommandCodeRunner")(function
     Effect.mapError((cause) =>
       isRequestError(cause)
         ? cause
-        : new ProviderAdapterRequestError({
-            provider: "commandcode",
-            method: "print",
+        : new CommandCodeProcessError({
             detail: "Command Code process or JSON stream failed.",
             cause,
           }),

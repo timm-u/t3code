@@ -1,4 +1,3 @@
-import { TerminalIcon } from "lucide-react";
 import {
   AntigravitySettings,
   ClaudeSettings,
@@ -17,7 +16,12 @@ import { piClient } from "@t3tools/provider-pi/client";
 /** The provider client definitions this web build ships, in presentation order. */
 export const providerClients = makeProviderClientRegistry([
   {
-  CommandCodeSettings,
+    driverKind: ProviderDriverKind.make("commandcode"),
+    label: "Command Code",
+    settingsSchema: CommandCodeSettings,
+  },
+  {
+    driverKind: ProviderDriverKind.make("codex"),
     label: "Codex",
     settingsSchema: CodexSettings,
   },

@@ -3,17 +3,40 @@ import * as NodeURL from "node:url";
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Deferred from "effect/Deferred";
+import * as DateTime from "effect/DateTime";
 import * as Layer from "effect/Layer";
+import * as Queue from "effect/Queue";
+import * as Schema from "effect/Schema";
+import * as Scope from "effect/Scope";
+import * as Exit from "effect/Exit";
 import * as Stream from "effect/Stream";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { ProviderInstanceId, ThreadId, type ProviderRuntimeEvent } from "@t3tools/contracts";
+import {
+  ProviderInstanceId,
+  ProviderSessionId,
+  ThreadId,
+  ProjectId,
+  RunId,
+  RunAttemptId,
+  NodeId,
+  MessageId,
+  type OrchestrationV2AppThread,
+} from "@t3tools/contracts";
 import { ServerConfig } from "../../config.ts";
+import * as IdAllocator from "../../orchestration-v2/IdAllocator.ts";
+import * as ProviderAdapter from "../../orchestration-v2/ProviderAdapter.ts";
 import { execScriptSource, writeFakeCli } from "../../testUtils/fakeCli.ts";
 import { makeCommandCodeAdapter } from "./CommandCodeAdapter.ts";
 import { commandCodeArgs, parseCommandCodeModels } from "./CommandCodeProtocol.ts";
 
 const instanceId = ProviderInstanceId.make("commandcode-test");
 const threadId = ThreadId.make("commandcode-test-thread");
+const modelSelection = { instanceId, model: "default" };
+const runtimePolicy = {
+  runtimeMode: "approval-required" as const,
+  interactionMode: "default" as const,
+  cwd: null,
+};
 const fixture = Effect.gen(function* () {
   const config = yield* ServerConfig;
   const binaryPath = yield* Effect.sync(() =>
@@ -33,26 +56,104 @@ const fixture = Effect.gen(function* () {
     instanceId,
     cwd: config.cwd,
   });
-  const events: ProviderRuntimeEvent[] = [];
-  const completed = yield* Deferred.make<void>();
-  yield* Stream.runForEach(adapter.streamEvents, (event) => {
-    events.push(event);
-    return event.type === "turn.completed" ? Deferred.succeed(completed, undefined) : Effect.void;
-  }).pipe(Effect.forkScoped);
-  yield* adapter.startSession({ threadId, runtimeMode: "approval-required", cwd: config.cwd });
-  return { adapter, events, completed, config };
+  const sessionScope = yield* Scope.make();
+  yield* Effect.addFinalizer(() => Scope.close(sessionScope, Exit.void));
+  const sessionInput = {
+    threadId,
+    providerSessionId: ProviderSessionId.make("commandcode-test-session"),
+    modelSelection,
+    runtimePolicy,
+  };
+  const runtime = yield* adapter
+    .openSession(sessionInput)
+    .pipe(Effect.provideService(Scope.Scope, sessionScope));
+  const events: ProviderAdapter.ProviderAdapterV2Event[] = [];
+  const terminals =
+    yield* Queue.unbounded<
+      Extract<ProviderAdapter.ProviderAdapterV2Event, { type: "turn.terminal" }>
+    >();
+  const admitted = yield* Deferred.make<void>();
+  const observe = (current: ProviderAdapter.ProviderAdapterV2SessionRuntime) =>
+    Stream.runForEach(current.events, (event) =>
+      Effect.gen(function* () {
+        events.push(event);
+        if (event.type === "provider_thread.updated" && event.providerThread.nativeThreadRef)
+          yield* Deferred.succeed(admitted, undefined);
+        if (event.type === "turn.terminal") yield* Queue.offer(terminals, event);
+      }),
+    ).pipe(Effect.forkScoped);
+  yield* observe(runtime);
+  const providerThread = yield* runtime.ensureThread({ threadId, modelSelection, runtimePolicy });
+  const now = yield* DateTime.now;
+  const appThread: OrchestrationV2AppThread = {
+    id: threadId,
+    projectId: ProjectId.make("commandcode-project"),
+    title: "Command Code test",
+    providerInstanceId: instanceId,
+    modelSelection,
+    runtimeMode: runtimePolicy.runtimeMode,
+    interactionMode: "default",
+    branch: null,
+    worktreePath: null,
+    activeProviderThreadId: null,
+    lineage: { parentThreadId: null, relationshipToParent: null, rootThreadId: threadId },
+    forkedFrom: null,
+    createdBy: "user",
+    creationSource: "web",
+    createdAt: now,
+    updatedAt: now,
+    archivedAt: null,
+    settledOverride: null,
+    settledAt: null,
+    lastVisitedAt: null,
+    deletedAt: null,
+  };
+  const turnInput = (text: string, ordinal = 1, current = providerThread) => ({
+    appThread,
+    threadId,
+    runId: RunId.make(`commandcode-run-${ordinal}`),
+    runOrdinal: ordinal,
+    providerTurnOrdinal: ordinal,
+    attemptId: RunAttemptId.make(`commandcode-attempt-${ordinal}`),
+    rootNodeId: NodeId.make(`commandcode-node-${ordinal}`),
+    providerThread: current,
+    message: {
+      messageId: MessageId.make(`commandcode-message-${ordinal}`),
+      text,
+      attachments: [],
+      createdBy: "user" as const,
+      creationSource: "web" as const,
+    },
+    modelSelection,
+    runtimePolicy,
+  });
+  return {
+    adapter,
+    runtime,
+    sessionInput,
+    sessionScope,
+    events,
+    terminals,
+    admitted,
+    observe,
+    turnInput,
+  };
 });
 const provide = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
   effect.pipe(
     Effect.provide(
-      ServerConfig.layerTest(process.cwd(), { prefix: "t3-commandcode-" }).pipe(
-        Layer.provideMerge(NodeServices.layer),
+      Layer.mergeAll(
+        IdAllocator.layer,
+        ServerConfig.layerTest(process.cwd(), { prefix: "t3-commandcode-" }).pipe(
+          Layer.provideMerge(NodeServices.layer),
+        ),
       ),
     ),
     Effect.scoped,
   );
+const isEvent = Schema.is(ProviderAdapter.ProviderAdapterV2Event);
 
-describe("Command Code", () => {
+describe("Command Code orchestration v2", () => {
   it("keeps restricted and plan runs read-only", () => {
     expect(commandCodeArgs({ runtimeMode: "approval-required" })).toContain("plan");
     expect(commandCodeArgs({ runtimeMode: "full-access", interactionMode: "plan" })).not.toContain(
@@ -60,93 +161,106 @@ describe("Command Code", () => {
     );
     expect(commandCodeArgs({ runtimeMode: "full-access" })).toContain("--yolo");
   });
-  it("reads CLI model IDs without mistaking headings for models", () => {
-    const models = parseCommandCodeModels(
-      "Available models  ·  2 models\nOpen Source\ndeepseek/v4  Fast (default)\nclaude-sonnet-4-6  Reasoning\nDocs:  https://commandcode.ai/docs/reference/cli/models\n",
-    );
-    expect(models.map((x) => x.slug)).toEqual(["deepseek/v4", "claude-sonnet-4-6"]);
-    expect(models[0]?.isDefault).toBe(true);
+  it("excludes headings and the documentation footer from the model catalog", () => {
+    expect(
+      parseCommandCodeModels(
+        "Available models  ·  2 models\nOpen Source\ndeepseek/v4  Fast (default)\nclaude-sonnet-4-6  Reasoning\nDocs:  https://commandcode.ai/docs/reference/cli/models\n",
+      ).map((m) => m.slug),
+    ).toEqual(["deepseek/v4", "claude-sonnet-4-6"]);
   });
   it.effect(
-    "streams distinct messages and tools without repeating snapshots, then resumes the exact session",
+    "streams distinct messages, reasoning and tools without duplicate final text, then resumes after session recreation",
     () =>
       provide(
         Effect.gen(function* () {
-          const { adapter, events, completed, config } = yield* fixture;
-          const turn = yield* adapter.sendTurn({
-            threadId,
-            input: 'prompt with "quotes" & $() %PATH%',
-          });
-          yield* Deferred.await(completed);
-          expect(turn.resumeCursor).toEqual({ schemaVersion: 1, sessionId: "mock-session" });
-          const deltas = events
-            .filter((x) => x.type === "content.delta")
-            .filter((x) => x.payload.streamKind === "assistant_text");
-          expect(deltas.map((x) => x.payload.delta).join("")).toBe("Before tool.Final answer.");
-          expect(new Set(deltas.map((x) => x.itemId)).size).toBe(2);
+          const f = yield* fixture;
+          yield* f.runtime.startTurn(f.turnInput('prompt with "quotes" & $() %PATH%'));
+          expect((yield* Queue.take(f.terminals)).status).toBe("completed");
+          expect(f.events.every(isEvent)).toBe(true);
+          const messages = f.events
+            .filter((e) => e.type === "message.updated")
+            .filter((e) => !e.message.streaming);
+          expect(messages.map((e) => e.message.text)).toEqual(["Before tool.", "Final answer."]);
           expect(
-            events.filter(
-              (x) => x.type === "item.completed" && x.payload.itemType === "dynamic_tool_call",
+            f.events.filter(
+              (e) =>
+                e.type === "turn_item.updated" &&
+                e.turnItem.type === "reasoning" &&
+                e.turnItem.status === "completed",
             ),
           ).toHaveLength(1);
-          expect(events.filter((x) => x.type === "turn.completed")).toHaveLength(1);
-          expect(
-            events.every(
-              (x) => x.provider === "commandcode" && x.providerInstanceId === instanceId,
-            ),
-          ).toBe(true);
-          yield* adapter.stopSession(threadId);
-          yield* adapter.startSession({
-            threadId,
-            runtimeMode: "full-access",
-            cwd: config.cwd,
-            resumeCursor: turn.resumeCursor,
-          });
-          const nextDone = yield* Deferred.make<void>();
-          const nextEvents: ProviderRuntimeEvent[] = [];
-          yield* Stream.runForEach(adapter.streamEvents, (e) => {
-            nextEvents.push(e);
-            return e.type === "turn.completed"
-              ? Deferred.succeed(nextDone, undefined)
-              : Effect.void;
-          }).pipe(Effect.forkScoped);
-          yield* adapter.sendTurn({ threadId, input: "continue" });
-          yield* Deferred.await(nextDone);
-          const tool = nextEvents.find(
-            (e) => e.type === "item.completed" && e.payload.itemType === "dynamic_tool_call",
+          const tools = f.events.filter(
+            (e) =>
+              e.type === "turn_item.updated" &&
+              e.turnItem.type === "dynamic_tool" &&
+              e.turnItem.status === "completed",
           );
-          expect(tool?.type === "item.completed" ? tool.payload.data : undefined).toMatchObject({
-            args: expect.arrayContaining(["--resume", "mock-session", "--yolo"]),
-            prompt: "continue",
+          expect(tools).toHaveLength(1);
+          const previous = f.events
+            .filter((e) => e.type === "provider_thread.updated")
+            .at(-1)!.providerThread;
+          expect(previous.nativeThreadRef?.nativeId).toBe("mock-session");
+          yield* Scope.close(f.sessionScope, Exit.void);
+          const resumed = yield* f.adapter.openSession({
+            ...f.sessionInput,
+            providerSessionId: ProviderSessionId.make("commandcode-resumed"),
           });
+          yield* f.observe(resumed);
+          const current = yield* resumed.resumeThread({ providerThread: previous });
+          yield* resumed.injectHistory!({
+            providerThread: current,
+            messages: [],
+            context: "Remembered handoff context",
+          });
+          yield* resumed.startTurn({
+            ...f.turnInput("continue", 2, current),
+            runtimePolicy: { ...runtimePolicy, runtimeMode: "full-access" },
+          });
+          expect((yield* Queue.take(f.terminals)).status).toBe("completed");
+          const tool = f.events
+            .filter((e) => e.type === "turn_item.updated")
+            .filter((e) => e.turnItem.type === "dynamic_tool" && e.turnItem.status === "completed")
+            .at(-1)!;
+          expect(tool.turnItem.type === "dynamic_tool" ? tool.turnItem.output : null).toMatchObject(
+            {
+              args: expect.arrayContaining(["--resume", "mock-session", "--yolo"]),
+              prompt: "Remembered handoff context\n\ncontinue",
+            },
+          );
         }),
       ),
   );
-  for (const prompt of ["auth-error", "broken", "missing-result", "max-turns"]) {
-    it.effect(`finishes ${prompt} with one failed terminal event`, () =>
+  it.effect.each(["auth-error", "broken", "missing-result", "max-turns"])(
+    "terminalizes %s once and accepts the next turn",
+    (text) =>
       provide(
         Effect.gen(function* () {
-          const { adapter, events, completed } = yield* fixture;
-          yield* adapter.sendTurn({ threadId, input: prompt }).pipe(Effect.result);
-          yield* Deferred.await(completed);
-          const terminal = events.filter((e) => e.type === "turn.completed");
-          expect(terminal).toHaveLength(1);
-          expect(terminal[0]?.payload.state).toBe("failed");
+          const f = yield* fixture;
+          yield* f.runtime.startTurn(f.turnInput(text));
+          expect((yield* Queue.take(f.terminals)).status).toBe("failed");
+          const current = f.events
+            .filter((e) => e.type === "provider_thread.updated")
+            .at(-1)!.providerThread;
+          yield* f.runtime.startTurn(f.turnInput("retry", 2, current));
+          expect((yield* Queue.take(f.terminals)).status).toBe("completed");
+          expect(f.events.filter((e) => e.type === "turn.terminal")).toHaveLength(2);
         }),
       ),
-    );
-  }
-  it.effect("interrupts an active child and clears the active turn", () =>
+  );
+  it.effect("stops the active CLI child and terminalizes it once", () =>
     provide(
       Effect.gen(function* () {
-        const { adapter, events, completed } = yield* fixture;
-        yield* adapter.sendTurn({ threadId, input: "hang" });
-        yield* adapter.interruptTurn(threadId);
-        yield* Deferred.await(completed);
-        expect(
-          events.filter((e) => e.type === "turn.completed").map((e) => e.payload.state),
-        ).toEqual(["interrupted"]);
-        expect((yield* adapter.listSessions())[0]?.activeTurnId).toBeUndefined();
+        const f = yield* fixture;
+        yield* f.runtime.startTurn(f.turnInput("hang"));
+        yield* Deferred.await(f.admitted);
+        const active = f.events.find((e) => e.type === "provider_turn.updated")!.providerTurn;
+        const current = f.events
+          .filter((e) => e.type === "provider_thread.updated")
+          .at(-1)!.providerThread;
+        yield* f.runtime.interruptTurn({ providerThread: current, providerTurnId: active.id });
+        expect((yield* Queue.take(f.terminals)).status).toBe("interrupted");
+        expect(f.runtime.providerSession.status).toBe("ready");
+        expect(f.events.filter((e) => e.type === "turn.terminal")).toHaveLength(1);
       }),
     ),
   );
