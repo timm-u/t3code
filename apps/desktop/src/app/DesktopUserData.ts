@@ -60,10 +60,12 @@ export const resolveUserDataPath = Effect.fn("desktop.userData.resolveUserDataPa
     if (input.platform !== "win32") return destinationPath;
     const destinationState = path.join(destinationPath, "Local State");
     if (yield* inspect(destinationState)) return destinationPath;
-    const legacyState = path.join(legacyPath, "Local State");
-    const sourceState = (yield* inspect(legacyState))
-      ? legacyState
-      : path.join(input.appDataDirectory, "t3code", "Local State");
+    const canonicalState = path.join(input.appDataDirectory, "t3code", "Local State");
+    // A leftover Alpha profile can have an unrelated key. Prefer the canonical
+    // V1 profile when both exist so saved connections keep their encryption key.
+    const sourceState = (yield* inspect(canonicalState))
+      ? canonicalState
+      : path.join(legacyPath, "Local State");
     if (!(yield* inspect(sourceState))) return destinationPath;
     // Windows safeStorage keys live here. Copy only these preferences, never locked databases.
     const state = yield* fs
