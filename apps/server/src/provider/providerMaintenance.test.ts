@@ -9,6 +9,8 @@ import { ProviderDriverKind, ProviderInstanceId, type ServerProvider } from "@t3
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
+import * as Deferred from "effect/Deferred";
+import * as Fiber from "effect/Fiber";
 import * as Sink from "effect/Sink";
 import * as Stream from "effect/Stream";
 import { HttpClient } from "effect/unstable/http";
@@ -767,6 +769,29 @@ it.layer(NodeServices.layer)("providerMaintenance", (it) => {
 
         expect(capabilities).toEqual(manualPackageTool);
       }),
+  );
+
+  it.effect("retries maintenance resolution after snapshot enrichment is interrupted", () =>
+    Effect.gen(function* () {
+      const started = yield* Deferred.make<void>();
+      let resolutions = 0;
+      const resolve = yield* makeCachedProviderMaintenanceResolution(
+        Effect.gen(function* () {
+          resolutions += 1;
+          if (resolutions === 1) {
+            yield* Deferred.succeed(started, undefined);
+            return yield* Effect.never;
+          }
+          return manualPackageTool;
+        }),
+      );
+      const first = yield* resolve().pipe(Effect.forkScoped);
+      yield* Deferred.await(started);
+      yield* Fiber.interrupt(first);
+      expect(yield* resolve()).toEqual(manualPackageTool);
+      yield* resolve();
+      expect(resolutions).toBe(2);
+    }).pipe(Effect.scoped),
   );
 
   it.effect("caches resolution until a fresh read is requested", () =>

@@ -8,10 +8,12 @@ import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { causeErrorTag } from "@t3tools/shared/observability";
 import { resolveCommandPath } from "@t3tools/shared/shell";
 import * as Config from "effect/Config";
+import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
@@ -606,12 +608,19 @@ export const resolveProviderMaintenanceCapabilitiesEffect = Effect.fn(
 export const makeCachedProviderMaintenanceResolution = Effect.fn(
   "makeCachedProviderMaintenanceResolution",
 )(function* (resolve: Effect.Effect<ProviderMaintenanceCapabilities>) {
+  // A refreshed snapshot interrupts its previous enrichment. Do not reuse that
+  // interrupted lookup when the next enrichment asks for update capabilities.
   const [cached, invalidate] = yield* Effect.cachedInvalidateWithTTL(
     resolve,
     MAINTENANCE_CAPABILITIES_CACHE_TTL,
   );
+  const read = cached.pipe(
+    Effect.onExit((exit) =>
+      Exit.isFailure(exit) && Cause.hasInterrupts(exit.cause) ? invalidate : Effect.void,
+    ),
+  );
   return (options?: { readonly fresh?: boolean }) =>
-    options?.fresh ? invalidate.pipe(Effect.andThen(cached)) : cached;
+    options?.fresh ? invalidate.pipe(Effect.andThen(read)) : read;
 });
 
 function deriveVersionAdvisory(input: {
