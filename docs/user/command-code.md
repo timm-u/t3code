@@ -8,6 +8,6 @@ An existing Command Code desktop/CLI login is reused. For a separate account, se
 
 Responses stream with separate reasoning, tool activity, and final text. Follow-up messages resume the same native Command Code session, including after a T3 server restart. Provider settings can check for CLI updates and update recognized npm installations.
 
-Full access allows the agent to edit files and run commands. Plan mode and approval-required mode are read-only because the CLI's headless mode cannot request interactive approvals. Queue follow-up messages while a turn is running, or stop the turn before sending a replacement.
+Chat uses Command Code's ACP server. Approval-required mode lets the agent request permission to edit files or run commands. Full access uses its bypass mode, and Plan uses its native plan mode. Agent questions appear as choices you can answer in T3. Queue follow-up messages while a turn is running, or stop the turn before sending a replacement.
 
-File/image attachments, interactive questions, and conversation rollback are not supported by this integration yet. Reference files in the workspace in your text prompt, and answer questions in a follow-up message. Checkpoints and Git diffs remain available through T3.
+File and image attachments are supported. Models expose their available effort controls after the native session selects them. Conversation rollback is unavailable; checkpoints and Git diffs remain available through T3. Existing Command Code threads continue using their saved native session IDs.

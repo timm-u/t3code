@@ -5,51 +5,62 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
-import { HttpClient } from "effect/unstable/http";
-import { ChildProcessSpawner } from "effect/unstable/process";
-import * as BackgroundPolicy from "../../background/BackgroundPolicy.ts";
-import { ServerConfig } from "../../config.ts";
+import * as Cache from "effect/Cache";
+import * as Ref from "effect/Ref";
+import { createModelCapabilities } from "@t3tools/shared/model";
+import { acpProviderOptionDescriptors } from "@t3tools/provider-acp/server/sessionConfig";
+import { ModelCapabilities } from "@t3tools/contracts";
+import { HttpClient } from "effect/http";
+import { ChildProcessSpawner } from "effect/process";
+import * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
+import { HostProcessEnvironment } from "@t3tools/shared/hostProcess";
+import { resolveSelfInvocation } from "@t3tools/shared/nodeRuntime";
 import * as ProcessRunner from "../../processRunner.ts";
-import { ServerSettingsService } from "../../serverSettings.ts";
-import { IdAllocatorV2 } from "../../orchestration-v2/IdAllocator.ts";
+import { IdAllocatorV2 } from "@t3tools/provider-core/server/IdAllocator";
 import { makeCommandCodeTextGeneration } from "../../textGeneration/CommandCodeTextGeneration.ts";
 import { makeCommandCodeAdapter } from "../commandcode/CommandCodeAdapter.ts";
-import { CommandCodeStatus, parseCommandCodeModels } from "../commandcode/CommandCodeProtocol.ts";
-import { ProviderDriverError } from "../Errors.ts";
-import { makeManagedServerProvider } from "../makeManagedServerProvider.ts";
-import { defaultProviderContinuationIdentity, type ProviderDriver } from "../ProviderDriver.ts";
-import { mergeProviderInstanceEnvironment } from "../ProviderInstanceEnvironment.ts";
-import { buildServerProvider, providerModelsFromSettings } from "../providerSnapshot.ts";
+import { CommandCodeStatus } from "../commandcode/CommandCodeProtocol.ts";
+import { probeCommandCodeAcp } from "../commandcode/CommandCodeAcpProbe.ts";
+import { ProviderDriverError } from "@t3tools/provider-core/server/errors";
+import { makeManagedServerProvider } from "@t3tools/provider-core/server/managedProvider";
+import {
+  defaultProviderContinuationIdentity,
+  type ProviderDriver,
+} from "@t3tools/provider-core/server/driver";
+import { mergeProviderInstanceEnvironment } from "@t3tools/provider-core/server/instanceEnvironment";
+import {
+  buildServerProvider,
+  providerModelsFromSettings,
+} from "@t3tools/provider-core/server/snapshotProbe";
 import {
   enrichProviderSnapshotWithVersionAdvisory,
   makeCachedProviderMaintenanceResolution,
   makePackageManagedProviderMaintenanceResolver,
   resolveProviderMaintenanceCapabilitiesEffect,
-} from "../providerMaintenance.ts";
+} from "@t3tools/provider-core/server/maintenanceResolver";
 import {
   haveProviderSnapshotSettingsChanged,
   makeProviderSnapshotSettingsSource,
-} from "../providerUpdateSettings.ts";
-import { withInstanceIdentity } from "./instanceIdentity.ts";
+} from "@t3tools/provider-core/server/snapshotSettings";
+import { withInstanceIdentity } from "@t3tools/provider-core/server/instanceIdentity";
 
 const driver = ProviderDriverKind.make("commandcode");
 const decodeSettings = Schema.decodeUnknownSync(CommandCodeSettings);
 const decodeStatus = Schema.decodeEffect(Schema.fromJsonString(CommandCodeStatus));
+const equalCapabilities = Schema.toEquivalence(ModelCapabilities);
 export const commandCodeMaintenance = makePackageManagedProviderMaintenanceResolver({
   provider: driver,
   npmPackageName: "command-code",
-  nativeUpdate: null,
+  nativeUpdate: { args: ["update"] },
 });
 export type CommandCodeDriverEnv =
   | IdAllocatorV2
-  | BackgroundPolicy.BackgroundPolicy
+  | ProviderHost.ProviderHost
   | ChildProcessSpawner.ChildProcessSpawner
   | Crypto.Crypto
   | FileSystem.FileSystem
   | HttpClient.HttpClient
-  | Path.Path
-  | ServerConfig
-  | ServerSettingsService;
+  | Path.Path;
 export const CommandCodeDriver: ProviderDriver<CommandCodeSettings, CommandCodeDriverEnv> = {
   driverKind: driver,
   metadata: { displayName: "Command Code", supportsMultipleInstances: true },
@@ -62,9 +73,10 @@ export const CommandCodeDriver: ProviderDriver<CommandCodeSettings, CommandCodeD
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-      const serverSettings = yield* ServerSettingsService;
-      const serverConfig = yield* ServerConfig;
-      const env = mergeProviderInstanceEnvironment(input.environment);
+      const host = yield* ProviderHost.ProviderHost;
+      const driverScope = yield* Effect.scope;
+      const baseEnvironment = yield* HostProcessEnvironment;
+      const env = mergeProviderInstanceEnvironment(input.environment, baseEnvironment);
       const config = { ...input.config, enabled: input.enabled };
       const continuationIdentity = defaultProviderContinuationIdentity({
         driverKind: driver,
@@ -86,7 +98,18 @@ export const CommandCodeDriver: ProviderDriver<CommandCodeSettings, CommandCodeD
           Effect.provideService(Path.Path, path),
         ),
       );
-      const snapshotSettings = makeProviderSnapshotSettingsSource(config, serverSettings);
+      const snapshotSettings = makeProviderSnapshotSettingsSource(config, host.settings);
+      const discoveryCache = yield* Cache.make({
+        capacity: 1,
+        timeToLive: "15 minutes",
+        lookup: () =>
+          probeCommandCodeAcp({
+            binaryPath: config.binaryPath,
+            environment: env,
+            cwd: host.paths.providerStatusCacheDir,
+          }),
+      });
+      const modelCapabilities = yield* Ref.make(new Map<string, ModelCapabilities>());
       const pending = (checkedAt: string) =>
         stamp(
           buildServerProvider({
@@ -133,19 +156,11 @@ export const CommandCodeDriver: ProviderDriver<CommandCodeSettings, CommandCodeD
             status: "error" as const,
             message: "Command Code returned an unsupported status response. Update its CLI.",
           };
-        const inventory = yield* process
-          .run({
-            command: config.binaryPath,
-            args: ["--list-models", "--no-auto-update"],
-            env,
-            timeout: "25 seconds",
-            maxOutputBytes: 262_144,
-          })
-          .pipe(Effect.result);
-        const models =
-          inventory._tag === "Success" && inventory.success.code === 0
-            ? parseCommandCodeModels(inventory.success.stdout)
-            : [];
+        const inventory = status.success.authenticated
+          ? yield* Cache.get(discoveryCache, undefined).pipe(Effect.result)
+          : undefined;
+        const discovery = inventory?._tag === "Success" ? inventory.success : undefined;
+        const observedCapabilities = yield* Ref.get(modelCapabilities);
         return stamp(
           buildServerProvider({
             presentation: {
@@ -155,20 +170,33 @@ export const CommandCodeDriver: ProviderDriver<CommandCodeSettings, CommandCodeD
             },
             enabled: input.enabled,
             checkedAt,
-            models: providerModelsFromSettings(models, config.customModels, {
-              optionDescriptors: [],
-            }),
+            models: providerModelsFromSettings(
+              discovery?.models.map((model) => ({
+                ...model,
+                capabilities: observedCapabilities.get(model.slug) ?? model.capabilities,
+              })) ?? [],
+              config.customModels,
+              discovery?.capabilities ?? {
+                optionDescriptors: [],
+              },
+            ),
+            slashCommands: discovery?.slashCommands ?? [],
             probe: {
               installed: true,
               version: status.success.version,
-              status: status.success.authenticated ? "ready" : "warning",
+              status: !status.success.authenticated ? "warning" : discovery ? "ready" : "error",
               auth: { status: status.success.authenticated ? "authenticated" : "unauthenticated" },
               ...(!status.success.authenticated
                 ? {
                     message:
                       "Run command-code login on this environment, or set CMD_API_KEY in this instance's environment variables.",
                   }
-                : {}),
+                : discovery
+                  ? {}
+                  : {
+                      message:
+                        "Command Code ACP could not start. Update its CLI and check its local login.",
+                    }),
             },
           }),
         );
@@ -206,7 +234,25 @@ export const CommandCodeDriver: ProviderDriver<CommandCodeSettings, CommandCodeD
         binaryPath: config.binaryPath,
         environment: env,
         instanceId: input.instanceId,
-        cwd: serverConfig.cwd,
+        selfInvocation: yield* resolveSelfInvocation(),
+        onSessionConfigurationUpdate: (configOptions, modeState) =>
+          Effect.gen(function* () {
+            const model = configOptions.find(
+              (option) => option.category === "model" && option.type === "select",
+            );
+            if (model?.type !== "select") return;
+            const capabilities = createModelCapabilities({
+              optionDescriptors: acpProviderOptionDescriptors({ configOptions, modeState }),
+            });
+            const current = yield* Ref.get(modelCapabilities);
+            const previous = current.get(model.currentValue);
+            if (previous !== undefined && equalCapabilities(previous, capabilities)) return;
+            yield* Ref.set(
+              modelCapabilities,
+              new Map(current).set(model.currentValue, capabilities),
+            );
+            yield* snapshot.refresh.pipe(Effect.forkIn(driverScope));
+          }),
       });
       const textGeneration = yield* makeCommandCodeTextGeneration(config, env);
       return {
@@ -215,6 +261,7 @@ export const CommandCodeDriver: ProviderDriver<CommandCodeSettings, CommandCodeD
         continuationIdentity,
         snapshot,
         orchestrationAdapter: adapter,
+        invalidateCaches: Cache.invalidate(discoveryCache, undefined),
         textGeneration,
       };
     }),

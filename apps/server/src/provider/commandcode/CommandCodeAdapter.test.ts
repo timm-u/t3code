@@ -23,11 +23,12 @@ import {
   type OrchestrationV2AppThread,
 } from "@t3tools/contracts";
 import { ServerConfig } from "../../config.ts";
-import * as IdAllocator from "../../orchestration-v2/IdAllocator.ts";
-import * as ProviderAdapter from "../../orchestration-v2/ProviderAdapter.ts";
-import { execScriptSource, writeFakeCli } from "../../testUtils/fakeCli.ts";
-import { makeCommandCodeAdapter } from "./CommandCodeAdapter.ts";
-import { commandCodeArgs, parseCommandCodeModels } from "./CommandCodeProtocol.ts";
+import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
+import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
+import { execScriptSource, writeFakeCli } from "@t3tools/provider-testing/fakeCli";
+import { resolveSelfInvocation } from "@t3tools/shared/nodeRuntime";
+import { layerTestProviderHost } from "@t3tools/provider-testing/host";
+import { commandCodeSessionMode, makeCommandCodeAdapter } from "./CommandCodeAdapter.ts";
 
 const instanceId = ProviderInstanceId.make("commandcode-test");
 const threadId = ThreadId.make("commandcode-test-thread");
@@ -54,7 +55,7 @@ const fixture = Effect.gen(function* () {
     binaryPath,
     environment: process.env,
     instanceId,
-    cwd: config.cwd,
+    selfInvocation: yield* resolveSelfInvocation(),
   });
   const sessionScope = yield* Scope.make();
   yield* Effect.addFinalizer(() => Scope.close(sessionScope, Exit.void));
@@ -73,10 +74,12 @@ const fixture = Effect.gen(function* () {
       Extract<ProviderAdapter.ProviderAdapterV2Event, { type: "turn.terminal" }>
     >();
   const admitted = yield* Deferred.make<void>();
+  const updates = yield* Queue.unbounded<ProviderAdapter.ProviderAdapterV2Event>();
   const observe = (current: ProviderAdapter.ProviderAdapterV2SessionRuntime) =>
     Stream.runForEach(current.events, (event) =>
       Effect.gen(function* () {
         events.push(event);
+        yield* Queue.offer(updates, event);
         if (event.type === "provider_thread.updated" && event.providerThread.nativeThreadRef)
           yield* Deferred.succeed(admitted, undefined);
         if (event.type === "turn.terminal") yield* Queue.offer(terminals, event);
@@ -84,6 +87,12 @@ const fixture = Effect.gen(function* () {
     ).pipe(Effect.forkScoped);
   yield* observe(runtime);
   const providerThread = yield* runtime.ensureThread({ threadId, modelSelection, runtimePolicy });
+  const waitFor = (
+    predicate: (event: ProviderAdapter.ProviderAdapterV2Event) => boolean,
+  ): Effect.Effect<ProviderAdapter.ProviderAdapterV2Event> =>
+    Queue.take(updates).pipe(
+      Effect.flatMap((event) => (predicate(event) ? Effect.succeed(event) : waitFor(predicate))),
+    );
   const now = yield* DateTime.now;
   const appThread: OrchestrationV2AppThread = {
     id: threadId,
@@ -137,6 +146,8 @@ const fixture = Effect.gen(function* () {
     admitted,
     observe,
     turnInput,
+    providerThread,
+    waitFor,
   };
 });
 const provide = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
@@ -144,6 +155,7 @@ const provide = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
     Effect.provide(
       Layer.mergeAll(
         IdAllocator.layer,
+        layerTestProviderHost().pipe(Layer.provide(NodeServices.layer)),
         ServerConfig.layerTest(process.cwd(), { prefix: "t3-commandcode-" }).pipe(
           Layer.provideMerge(NodeServices.layer),
         ),
@@ -153,115 +165,161 @@ const provide = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
   );
 const isEvent = Schema.is(ProviderAdapter.ProviderAdapterV2Event);
 
-describe("Command Code orchestration v2", () => {
-  it("keeps restricted and plan runs read-only", () => {
-    expect(commandCodeArgs({ runtimeMode: "approval-required" })).toContain("plan");
-    expect(commandCodeArgs({ runtimeMode: "full-access", interactionMode: "plan" })).not.toContain(
-      "--yolo",
-    );
-    expect(commandCodeArgs({ runtimeMode: "full-access" })).toContain("--yolo");
-  });
-  it("excludes headings and the documentation footer from the model catalog", () => {
+describe("Command Code ACP adapter", () => {
+  it("maps plan and access policies to native Command Code modes", () => {
+    expect(commandCodeSessionMode(runtimePolicy)).toBe("default");
+    expect(commandCodeSessionMode({ ...runtimePolicy, runtimeMode: "full-access" })).toBe("bypass");
     expect(
-      parseCommandCodeModels(
-        "Available models  ·  2 models\nOpen Source\ndeepseek/v4  Fast (default)\nclaude-sonnet-4-6  Reasoning\nDocs:  https://commandcode.ai/docs/reference/cli/models\n",
-      ).map((m) => m.slug),
-    ).toEqual(["deepseek/v4", "claude-sonnet-4-6"]);
+      commandCodeSessionMode({
+        ...runtimePolicy,
+        runtimeMode: "full-access",
+        interactionMode: "plan",
+      }),
+    ).toBe("plan");
   });
+
   it.effect(
-    "streams distinct messages, reasoning and tools without duplicate final text, then resumes after session recreation",
+    "streams text, reasoning, and tools without losing the final answer",
     () =>
       provide(
         Effect.gen(function* () {
           const f = yield* fixture;
-          yield* f.runtime.startTurn(f.turnInput('prompt with "quotes" & $() %PATH%'));
+          expect(f.providerThread.nativeThreadRef?.nativeId).toBe("mock-session");
+          yield* f.runtime.startTurn(f.turnInput("hello"));
           expect((yield* Queue.take(f.terminals)).status).toBe("completed");
           expect(f.events.every(isEvent)).toBe(true);
-          const messages = f.events
-            .filter((e) => e.type === "message.updated")
-            .filter((e) => !e.message.streaming);
-          expect(messages.map((e) => e.message.text)).toEqual(["Before tool.", "Final answer."]);
-          expect(
-            f.events.filter(
-              (e) =>
-                e.type === "turn_item.updated" &&
-                e.turnItem.type === "reasoning" &&
-                e.turnItem.status === "completed",
-            ),
-          ).toHaveLength(1);
-          const tools = f.events.filter(
-            (e) =>
-              e.type === "turn_item.updated" &&
-              e.turnItem.type === "dynamic_tool" &&
-              e.turnItem.status === "completed",
-          );
-          expect(tools).toHaveLength(1);
-          const previous = f.events
-            .filter((e) => e.type === "provider_thread.updated")
-            .at(-1)!.providerThread;
-          expect(previous.nativeThreadRef?.nativeId).toBe("mock-session");
-          yield* Scope.close(f.sessionScope, Exit.void);
-          const resumed = yield* f.adapter.openSession({
-            ...f.sessionInput,
-            providerSessionId: ProviderSessionId.make("commandcode-resumed"),
-          });
-          yield* f.observe(resumed);
-          const current = yield* resumed.resumeThread({ providerThread: previous });
-          yield* resumed.injectHistory!({
-            providerThread: current,
-            messages: [],
-            context: "Remembered handoff context",
-          });
-          yield* resumed.startTurn({
-            ...f.turnInput("continue", 2, current),
-            runtimePolicy: { ...runtimePolicy, runtimeMode: "full-access" },
-          });
-          expect((yield* Queue.take(f.terminals)).status).toBe("completed");
-          const tool = f.events
-            .filter((e) => e.type === "turn_item.updated")
-            .filter((e) => e.turnItem.type === "dynamic_tool" && e.turnItem.status === "completed")
-            .at(-1)!;
-          expect(tool.turnItem.type === "dynamic_tool" ? tool.turnItem.output : null).toMatchObject(
-            {
-              args: expect.arrayContaining(["--resume", "mock-session", "--yolo"]),
-              prompt: "Remembered handoff context\n\ncontinue",
-            },
-          );
+          const serialized = JSON.stringify(f.events);
+          expect(serialized).toContain("Before tool.");
+          expect(serialized).toContain("Thinking.");
+          expect(serialized).toContain("Final answer.");
+          expect(serialized).toContain("fixture.txt");
+          expect(f.events.filter((event) => event.type === "turn.terminal")).toHaveLength(1);
         }),
       ),
+    { timeout: 15_000 },
   );
-  it.effect.each(["auth-error", "broken", "missing-result", "max-turns"])(
-    "terminalizes %s once and accepts the next turn",
-    (text) =>
+
+  it.effect(
+    "loads existing native sessions without replaying history as a new reply",
+    () =>
       provide(
         Effect.gen(function* () {
           const f = yield* fixture;
-          yield* f.runtime.startTurn(f.turnInput(text));
-          expect((yield* Queue.take(f.terminals)).status).toBe("failed");
-          const current = f.events
-            .filter((e) => e.type === "provider_thread.updated")
-            .at(-1)!.providerThread;
-          yield* f.runtime.startTurn(f.turnInput("retry", 2, current));
+          yield* Scope.close(f.sessionScope, Exit.void);
+          const resumed = yield* f.adapter.openSession({
+            ...f.sessionInput,
+            providerSessionId: ProviderSessionId.make("commandcode-resumed-session"),
+            initialNativeThreadId: "mock-session",
+          });
+          yield* f.observe(resumed);
+          const thread = yield* resumed.resumeThread({
+            providerThread: f.providerThread,
+            modelSelection,
+            runtimePolicy,
+          });
+          yield* resumed.startTurn(f.turnInput("after restart", 2, thread));
           expect((yield* Queue.take(f.terminals)).status).toBe("completed");
-          expect(f.events.filter((e) => e.type === "turn.terminal")).toHaveLength(2);
+          expect(JSON.stringify(f.events)).not.toContain("Historical reply.");
+          expect(JSON.stringify(f.events)).toContain("Final answer.");
         }),
       ),
+    { timeout: 15_000 },
   );
-  it.effect("stops the active CLI child and terminalizes it once", () =>
-    provide(
-      Effect.gen(function* () {
-        const f = yield* fixture;
-        yield* f.runtime.startTurn(f.turnInput("hang"));
-        yield* Deferred.await(f.admitted);
-        const active = f.events.find((e) => e.type === "provider_turn.updated")!.providerTurn;
-        const current = f.events
-          .filter((e) => e.type === "provider_thread.updated")
-          .at(-1)!.providerThread;
-        yield* f.runtime.interruptTurn({ providerThread: current, providerTurnId: active.id });
-        expect((yield* Queue.take(f.terminals)).status).toBe("interrupted");
-        expect(f.runtime.providerSession.status).toBe("ready");
-        expect(f.events.filter((e) => e.type === "turn.terminal")).toHaveLength(1);
-      }),
-    ),
+
+  it.effect(
+    "waits for approval and sends the selected permission to ACP",
+    () =>
+      provide(
+        Effect.gen(function* () {
+          const f = yield* fixture;
+          yield* f.runtime.startTurn(f.turnInput("permission"));
+          const event = yield* f.waitFor(
+            (event) =>
+              event.type === "runtime_request.updated" && event.runtimeRequest.status === "pending",
+          );
+          if (event.type !== "runtime_request.updated")
+            throw new Error("Expected permission request");
+          expect(f.events.filter((event) => event.type === "turn.terminal")).toHaveLength(0);
+          yield* f.runtime.respondToRuntimeRequest({
+            requestId: event.runtimeRequest.id,
+            decision: "accept",
+          });
+          expect((yield* Queue.take(f.terminals)).status).toBe("completed");
+        }),
+      ),
+    { timeout: 15_000 },
+  );
+
+  it.effect(
+    "interrupts a pending native prompt exactly once",
+    () =>
+      provide(
+        Effect.gen(function* () {
+          const f = yield* fixture;
+          yield* f.runtime.startTurn(f.turnInput("hang"));
+          const event = yield* f.waitFor(
+            (event) =>
+              event.type === "provider_turn.updated" && event.providerTurn.status === "running",
+          );
+          if (event.type !== "provider_turn.updated") throw new Error("Expected running turn");
+          yield* f.waitFor(
+            (event) =>
+              event.type === "turn_item.updated" &&
+              JSON.stringify(event).includes("Waiting for cancellation"),
+          );
+          yield* f.runtime.interruptTurn({
+            providerThread: f.providerThread,
+            providerTurnId: event.providerTurn.id,
+          });
+          expect((yield* Queue.take(f.terminals)).status).toBe("interrupted");
+          expect(f.events.filter((event) => event.type === "turn.terminal")).toHaveLength(1);
+        }),
+      ),
+    { timeout: 15_000 },
+  );
+
+  it.effect(
+    "asks for a choice even in full access and returns the selected option",
+    () =>
+      provide(
+        Effect.gen(function* () {
+          const f = yield* fixture;
+          yield* f.runtime.startTurn({
+            ...f.turnInput("question"),
+            runtimePolicy: { ...runtimePolicy, runtimeMode: "full-access" },
+          });
+          const event = yield* f.waitFor(
+            (event) =>
+              event.type === "runtime_request.updated" &&
+              event.runtimeRequest.kind === "user_input" &&
+              event.runtimeRequest.status === "pending",
+          );
+          if (event.type !== "runtime_request.updated") throw new Error("Expected question");
+          expect(f.events.filter((event) => event.type === "turn.terminal")).toHaveLength(0);
+          yield* f.runtime.respondToRuntimeRequest({
+            requestId: event.runtimeRequest.id,
+            answers: { "question-1": ["option_1"] },
+          });
+          expect((yield* Queue.take(f.terminals)).status).toBe("completed");
+          expect(JSON.stringify(f.events)).toContain("option_1");
+        }),
+      ),
+    { timeout: 15_000 },
+  );
+
+  it.effect(
+    "settles native RPC failures instead of leaving a turn spinning",
+    () =>
+      provide(
+        Effect.gen(function* () {
+          const f = yield* fixture;
+          yield* f.runtime.startTurn(f.turnInput("auth-error"));
+          const terminal = yield* Queue.take(f.terminals);
+          expect(terminal.status).toBe("failed");
+          expect(JSON.stringify(terminal)).toContain("Authentication expired");
+          expect(f.events.filter((event) => event.type === "turn.terminal")).toHaveLength(1);
+        }),
+      ),
+    { timeout: 15_000 },
   );
 });

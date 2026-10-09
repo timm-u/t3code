@@ -1,6 +1,5 @@
-import type { RuntimeMode, ServerProviderModel } from "@t3tools/contracts";
+import type { RuntimeMode } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
-import { createModelCapabilities } from "@t3tools/shared/model";
 
 const Usage = Schema.Struct({
   inputTokens: Schema.optional(Schema.Finite),
@@ -63,25 +62,6 @@ export function commandCodeArgs(input: {
     ...(input.resumeSessionId ? ["--resume", input.resumeSessionId] : []),
     ...(input.noSession ? ["--no-session"] : []),
   ];
-}
-
-export function parseCommandCodeModels(text: string): ReadonlyArray<ServerProviderModel> {
-  const models: ServerProviderModel[] = [];
-  const seen = new Set<string>();
-  for (const line of text.replace(/\x1b\[[0-9;]*m/g, "").split(/\r?\n/)) {
-    const match = /^([a-z0-9][a-z0-9._:/-]+)\s{2,}(.+)$/i.exec(line.trim());
-    if (!match || match[1]!.endsWith(":") || seen.has(match[1]!)) continue;
-    const slug = match[1]!;
-    seen.add(slug);
-    models.push({
-      slug,
-      name: slug,
-      isCustom: false,
-      isDefault: match[2]!.includes("(default)"),
-      capabilities: createModelCapabilities({ optionDescriptors: [] }),
-    });
-  }
-  return models;
 }
 
 const decodeErrorMessage = Schema.decodeUnknownOption(Schema.Struct({ message: Schema.String }));
