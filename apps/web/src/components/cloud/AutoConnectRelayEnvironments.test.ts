@@ -3,7 +3,7 @@ import { EnvironmentId } from "@t3tools/contracts";
 import * as Option from "effect/Option";
 import { describe, expect, it } from "vite-plus/test";
 
-import { selectRelayEnvironmentsToAutoConnect } from "./AutoConnectRelayEnvironments";
+import { selectRelayEnvironmentsToAutoConnect } from "./relayAutoConnectPolicy";
 
 function discovered(
   environmentId: string,

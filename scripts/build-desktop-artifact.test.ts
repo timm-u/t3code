@@ -1189,7 +1189,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
                 Effect.gen(function* () {
                   assert.equal(command._tag, "StandardCommand");
                   if (command._tag !== "StandardCommand") return mockProcess(1);
-                  assert.equal(command.command, "cargo");
+                  assert.match(NodePath.basename(command.command), /^cargo(?:\.exe)?$/i);
                   assert.deepEqual(command.args, [
                     "build",
                     "--locked",
@@ -1217,7 +1217,10 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
               `${backend}-capture/t3-${backend}-snap-shot`,
             );
             assert.equal(yield* fs.readFileString(installed), `helper-${arch}`);
-            assert.equal((yield* fs.stat(installed)).mode & 0o777, 0o755);
+            // The test's real filesystem has executable bits only on POSIX hosts.
+            if (NodePath.sep === "/") {
+              assert.equal((yield* fs.stat(installed)).mode & 0o777, 0o755);
+            }
             if (backend === "hyprland")
               assert.equal(
                 yield* fs.readFileString(

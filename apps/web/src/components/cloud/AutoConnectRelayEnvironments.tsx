@@ -3,7 +3,6 @@ import {
   RelayConnectionTarget,
 } from "@t3tools/client-runtime/connection";
 import type { EnvironmentId } from "@t3tools/contracts";
-import { Discovery } from "@t3tools/client-runtime/relay";
 import { useCallback, useEffect, useRef } from "react";
 
 import { environmentCatalog } from "~/connection/catalog";
@@ -11,20 +10,7 @@ import { useEnvironments, useRelayEnvironmentDiscovery } from "~/state/environme
 import { relayEnvironmentDiscovery } from "~/state/relay";
 import { useAtomCommand } from "~/state/use-atom-command";
 
-export function selectRelayEnvironmentsToAutoConnect(
-  discovered: ReadonlyMap<string, Discovery.RelayDiscoveredEnvironment>,
-  registeredEnvironmentIds: ReadonlySet<EnvironmentId>,
-  attemptedEnvironmentIds: ReadonlySet<EnvironmentId>,
-) {
-  return [...discovered.values()]
-    .filter(
-      ({ environment, availability }) =>
-        availability === "online" &&
-        !registeredEnvironmentIds.has(environment.environmentId) &&
-        !attemptedEnvironmentIds.has(environment.environmentId),
-    )
-    .map(({ environment }) => environment);
-}
+import { selectRelayEnvironmentsToAutoConnect } from "./relayAutoConnectPolicy";
 
 /**
  * T3 Connect is a device mesh, so an online signed-in environment should be
