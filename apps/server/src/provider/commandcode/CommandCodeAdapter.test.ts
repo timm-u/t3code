@@ -24,10 +24,11 @@ import {
 } from "@t3tools/contracts";
 import { ServerConfig } from "../../config.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
+import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import { execScriptSource, writeFakeCli } from "@t3tools/provider-testing/fakeCli";
 import { resolveSelfInvocation } from "@t3tools/shared/nodeRuntime";
-import { layerTestProviderHost } from "@t3tools/provider-testing/host";
+import * as TestProviderHost from "@t3tools/provider-testing/TestProviderHost";
 import { commandCodeSessionMode, makeCommandCodeAdapter } from "./CommandCodeAdapter.ts";
 
 const instanceId = ProviderInstanceId.make("commandcode-test");
@@ -155,7 +156,8 @@ const provide = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
     Effect.provide(
       Layer.mergeAll(
         IdAllocator.layer,
-        layerTestProviderHost().pipe(Layer.provide(NodeServices.layer)),
+        McpProviderSessions.layer,
+        TestProviderHost.layer().pipe(Layer.provide(NodeServices.layer)),
         ServerConfig.layerTest(process.cwd(), { prefix: "t3-commandcode-" }).pipe(
           Layer.provideMerge(NodeServices.layer),
         ),
