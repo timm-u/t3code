@@ -1,3 +1,4 @@
+import { CommandCodeDriver, type CommandCodeDriverEnv } from "./Drivers/CommandCodeDriver.ts";
 import {
   AcpRegistryDriver,
   type AcpRegistryDriverEnv,
@@ -20,6 +21,7 @@ import { KiroDriver, type KiroDriverEnv } from "@t3tools/provider-kiro/server";
 export type BuiltInDriversEnv =
   | AcpRegistryDriverEnv
   | AntigravityDriverEnv
+  | CommandCodeDriverEnv
   | ClaudeDriverEnv
   | CodexDriverEnv
   | CursorDriverEnv
@@ -31,6 +33,7 @@ export type BuiltInDriversEnv =
   | MuseDriverEnv;
 
 export const BUILT_IN_DRIVERS: ReadonlyArray<AnyProviderDriver<BuiltInDriversEnv>> = [
+  CommandCodeDriver,
   CodexDriver,
   ClaudeDriver,
   CursorDriver,
