@@ -32,22 +32,22 @@ export function AutoConnectRelayEnvironments() {
     void refreshRelayEnvironments();
   }, [refreshRelayEnvironments]);
 
-  const connectEnvironment = async (environmentId: EnvironmentId, label: string) => {
-    const result = await registerEnvironment(
-      new RelayConnectionRegistration({
-        target: new RelayConnectionTarget({ environmentId, label }),
-      }),
-    );
-    if (result._tag === "Failure") {
-      // A later discovery refresh should be allowed to retry transient failures.
-      attemptedEnvironmentIdsRef.current.delete(environmentId);
-      console.error("[t3-connect] Automatic environment connection failed", {
-        environmentId,
-      });
-    }
-  };
-
   useEffect(() => {
+    const connectEnvironment = async (environmentId: EnvironmentId, label: string) => {
+      const result = await registerEnvironment(
+        new RelayConnectionRegistration({
+          target: new RelayConnectionTarget({ environmentId, label }),
+        }),
+      );
+      if (result._tag === "Failure") {
+        // A later discovery refresh should be allowed to retry transient failures.
+        attemptedEnvironmentIdsRef.current.delete(environmentId);
+        console.error("[t3-connect] Automatic environment connection failed", {
+          environmentId,
+        });
+      }
+    };
+
     const registeredEnvironmentIds = new Set(
       environments.map((environment) => environment.environmentId),
     );
@@ -70,7 +70,7 @@ export function AutoConnectRelayEnvironments() {
       attemptedEnvironmentIdsRef.current.add(environment.environmentId);
       void connectEnvironment(environment.environmentId, environment.label);
     }
-  }, [connectEnvironment, discovery.environments, environments]);
+  }, [registerEnvironment, discovery.environments, environments]);
 
   return null;
 }
