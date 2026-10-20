@@ -2,6 +2,7 @@ import {
   AntigravitySettings,
   ClaudeSettings,
   CodexSettings,
+  CommandCodeSettings,
   ProviderDriverKind,
 } from "@t3tools/contracts";
 import { acpRegistryClient } from "@t3tools/provider-acp-registry/client";
@@ -14,6 +15,11 @@ import { openCodeClient } from "@t3tools/provider-opencode/client";
 import { piClient } from "@t3tools/provider-pi/client";
 
 export const providerClients = makeProviderClientRegistry([
+  {
+    driverKind: ProviderDriverKind.make("commandcode"),
+    label: "Command Code",
+    settingsSchema: CommandCodeSettings,
+  },
   {
     driverKind: ProviderDriverKind.make("codex"),
     label: "Codex",

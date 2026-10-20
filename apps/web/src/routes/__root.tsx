@@ -22,6 +22,7 @@ import { AddProjectToMachineDialogHost } from "../components/AddProjectToMachine
 import { ConfirmDialogHost } from "../components/ConfirmDialogHost";
 import { FirstRunGate } from "../components/onboarding/FirstRunGate";
 import { ConnectOnboardingDialog } from "../components/cloud/ConnectOnboardingDialog";
+import { AutoConnectRelayEnvironments } from "../components/cloud/AutoConnectRelayEnvironments";
 import { RelayClientInstallDialog } from "../components/cloud/RelayClientInstallDialog";
 import { SshPasswordPromptDialog } from "../components/desktop/SshPasswordPromptDialog";
 import { SnapShotCoordinator } from "../components/desktop/SnapShotCoordinator";
@@ -199,6 +200,7 @@ function RootRouteBranch() {
         {isElectron ? <RunningThreadKeepAlive /> : null}
         <RelayClientInstallDialog />
         <ConnectOnboardingDialog />
+        <AutoConnectRelayEnvironments />
         <SshPasswordPromptDialog />
         <SnapShotCoordinator />
         <ReopenClosedViewShortcut />
