@@ -77,36 +77,33 @@ export function commandCodeSessionMode(policy: ProviderAdapter.ProviderAdapterV2
       : "default";
 }
 
-export const makeCommandCodeAcpRuntime = (
+export const makeCommandCodeAcpRuntime = Effect.fn("CommandCode.makeAcpRuntime")(function* (
   options: {
     readonly binaryPath: string;
     readonly environment: NodeJS.ProcessEnv;
     readonly spawner: ChildProcessSpawner.ChildProcessSpawner["Service"];
   },
   input: AcpAdapterV2RuntimeInput,
-): Effect.Effect<
+): Effect.fn.Return<
   AcpSessionRuntime.AcpSessionRuntime["Service"],
   EffectAcpErrors.AcpError,
   Crypto.Crypto | Scope.Scope
-> =>
-  Effect.gen(function* () {
-    const { runtimePolicy: _policy, processEnvironment, ...runtimeInput } = input;
-    const context = yield* Layer.build(
-      AcpSessionRuntime.layer({
-        ...runtimeInput,
-        spawn: {
-          command: options.binaryPath,
-          args: ["acp", "--no-auto-update"],
-          cwd: input.cwd,
-          env: { ...options.environment, ...processEnvironment },
-          extendEnv: true,
-        },
-      }).pipe(
-        Layer.provide(Layer.succeed(ChildProcessSpawner.ChildProcessSpawner, options.spawner)),
-      ),
-    );
-    return yield* Effect.service(AcpSessionRuntime.AcpSessionRuntime).pipe(Effect.provide(context));
-  });
+> {
+  const { runtimePolicy: _policy, processEnvironment, ...runtimeInput } = input;
+  const context = yield* Layer.build(
+    AcpSessionRuntime.layer({
+      ...runtimeInput,
+      spawn: {
+        command: options.binaryPath,
+        args: ["acp", "--no-auto-update"],
+        cwd: input.cwd,
+        env: { ...options.environment, ...processEnvironment },
+        extendEnv: true,
+      },
+    }).pipe(Layer.provide(Layer.succeed(ChildProcessSpawner.ChildProcessSpawner, options.spawner))),
+  );
+  return yield* Effect.service(AcpSessionRuntime.AcpSessionRuntime).pipe(Effect.provide(context));
+});
 
 export const makeCommandCodeAdapter = Effect.fn("makeCommandCodeAdapter")(function* (options: {
   readonly binaryPath: string;

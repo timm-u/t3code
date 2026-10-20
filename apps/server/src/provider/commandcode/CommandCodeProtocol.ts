@@ -33,9 +33,7 @@ export const CommandCodeFrame = Schema.Union([
   CommandCodeResult,
 ]);
 export type CommandCodeFrame = typeof CommandCodeFrame.Type;
-export const decodeCommandCodeFrame = Schema.decodeUnknownEffect(
-  Schema.fromJsonString(CommandCodeFrame),
-);
+export const decodeCommandCodeFrame = Schema.decodeEffect(Schema.fromJsonString(CommandCodeFrame));
 export const CommandCodeStatus = Schema.Struct({
   authenticated: Schema.Boolean,
   version: Schema.String,
