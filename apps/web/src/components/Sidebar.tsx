@@ -146,7 +146,6 @@ import { useSidebarProjectGroups } from "../hooks/useSidebarProjectGroups";
 import { useTerminalFocus } from "../hooks/useTerminalFocus";
 import { isCommandPaletteOpen, openCommandPalette } from "../commandPaletteBus";
 import { registerSettleAndAdvance } from "../settleAndAdvance";
-import { startNewThreadFromContext } from "../lib/chatThreadActions";
 import { useClientSettings } from "../hooks/useSettings";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 import { useLocalStorage } from "../hooks/useLocalStorage";
@@ -4530,10 +4529,10 @@ export default function Sidebar() {
   }, [shouldShowJumpHintsNow, updateThreadJumpHintsVisibility]);
 
   // Keep the machine/project chooser available from the global New button.
-  const handleNewThreadClick = useCallback(() => {
+  const handleNewThreadClick = () => {
     if (isMobile) setOpenMobile(false);
     openCommandPalette({ open: "new-thread-in" });
-  }, [isMobile, setOpenMobile]);
+  };
 
   // The global button opens the chooser. Direct project creation has its own shortcut.
   const newThreadShortcutLabel = shortcutLabelForCommand(keybindings, "chat.new");
