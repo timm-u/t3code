@@ -7,6 +7,28 @@ import * as PlatformError from "effect/PlatformError";
 
 import { resolveUserDataPath } from "./DesktopUserData.ts";
 
+it.effect("uses the canonical Windows key when an unused Alpha profile also exists", () =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const directory = yield* fs.makeTempDirectoryScoped({ prefix: "t3-profile-key-priority-" });
+    for (const name of ["t3code", "T3 Code (Alpha)"]) {
+      yield* fs.makeDirectory(path.join(directory, name));
+      yield* fs.writeFileString(path.join(directory, name, "Local State"), `${name} key`);
+    }
+    const destination = yield* resolveUserDataPath({
+      appDataDirectory: directory,
+      isDevelopment: false,
+      platform: "win32",
+    });
+    assert.equal(yield* fs.readFileString(path.join(destination, "Local State")), "t3code key");
+    assert.equal(
+      yield* fs.readFileString(path.join(directory, "T3 Code (Alpha)", "Local State")),
+      "T3 Code (Alpha) key",
+    );
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+);
+
 it.effect("identifies a failed source read and preserves its cause", () => {
   const sourceState = "/profiles/t3code/Local State";
   const cause = PlatformError.systemError({
@@ -22,14 +44,14 @@ it.effect("identifies a failed source read and preserves its cause", () => {
       platform: "win32",
     }).pipe(Effect.flip);
     assert.equal(error.operation, "read");
-    assert.equal(error.resourcePath, sourceState);
+    assert.equal(error.resourcePath.replaceAll("\\", "/"), sourceState);
     assert.equal(error.category, "PermissionDenied");
     assert.strictEqual(error.cause, cause);
   }).pipe(
     Effect.provideService(
       FileSystem.FileSystem,
       FileSystem.makeNoop({
-        exists: (path) => Effect.succeed(path === sourceState),
+        exists: (path) => Effect.succeed(path.replaceAll("\\", "/") === sourceState),
         readFileString: () => Effect.fail(cause),
       }),
     ),

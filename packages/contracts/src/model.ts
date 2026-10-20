@@ -194,6 +194,7 @@ export const MODEL_SLUG_ALIASES_BY_PROVIDER: Partial<
 };
 
 export const PROVIDER_DISPLAY_NAMES: Partial<Record<ProviderDriverKind, string>> = {
+  [ProviderDriverKind.make("commandcode")]: "Command Code",
   [ProviderDriverKind.make("antigravity")]: "Antigravity",
   [CODEX_DRIVER_KIND]: "Codex",
   [CLAUDE_DRIVER_KIND]: "Claude",
