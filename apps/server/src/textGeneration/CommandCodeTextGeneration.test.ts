@@ -8,7 +8,7 @@ import { writeFakeCli } from "@t3tools/provider-testing/fakeCli";
 import { makeCommandCodeTextGeneration } from "./CommandCodeTextGeneration.ts";
 const decodeSettings = Schema.decodeEffect(CommandCodeSettings);
 
-it.effect("runs review investigation read-only without creating a saved conversation", () =>
+it.live("runs review investigation read-only without creating a saved conversation", () =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const cwd = yield* fs.makeTempDirectoryScoped({ prefix: "commandcode-generation-" });
