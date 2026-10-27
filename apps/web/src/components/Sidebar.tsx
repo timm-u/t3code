@@ -201,6 +201,7 @@ import {
   resolveSidebarThreadSection,
   resolveSidebarReorderableThreadKeys,
   searchSidebarThreads,
+  shouldCreateNewThreadInCurrentProject,
   shouldNavigateAfterThreadPark,
   sidebarListItemId,
   sidebarThreadKeyAtY,
@@ -3722,5 +3723,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     </SidebarFolderDrop>
   );
 }
+
 
 
