@@ -91,9 +91,7 @@ const fixture = Effect.gen(function* () {
   const waitFor = (
     predicate: (event: ProviderAdapter.ProviderAdapterV2Event) => boolean,
   ): Effect.Effect<ProviderAdapter.ProviderAdapterV2Event> =>
-    Queue.take(updates).pipe(
-      Effect.flatMap((event) => (predicate(event) ? Effect.succeed(event) : waitFor(predicate))),
-    );
+    Queue.take(updates).pipe(Effect.filterOrElse(predicate, () => waitFor(predicate)));
   const now = yield* DateTime.now;
   const appThread: OrchestrationV2AppThread = {
     id: threadId,
@@ -169,6 +167,10 @@ const isEvent = Schema.is(ProviderAdapter.ProviderAdapterV2Event);
 
 describe("Command Code ACP adapter", () => {
   it("maps plan and access policies to native Command Code modes", () => {
+    expect(commandCodeSessionMode({ ...runtimePolicy, runtimeMode: "auto-accept-edits" })).toBe(
+      "auto-accept",
+    );
+    expect(commandCodeSessionMode({ ...runtimePolicy, runtimeMode: "auto" })).toBe("default");
     expect(commandCodeSessionMode(runtimePolicy)).toBe("default");
     expect(commandCodeSessionMode({ ...runtimePolicy, runtimeMode: "full-access" })).toBe("bypass");
     expect(
@@ -180,148 +182,146 @@ describe("Command Code ACP adapter", () => {
     ).toBe("plan");
   });
 
-  it.effect(
-    "streams text, reasoning, and tools without losing the final answer",
-    () =>
-      provide(
-        Effect.gen(function* () {
-          const f = yield* fixture;
-          expect(f.providerThread.nativeThreadRef?.nativeId).toBe("mock-session");
-          yield* f.runtime.startTurn(f.turnInput("hello"));
-          expect((yield* Queue.take(f.terminals)).status).toBe("completed");
-          expect(f.events.every(isEvent)).toBe(true);
-          const serialized = JSON.stringify(f.events);
-          expect(serialized).toContain("Before tool.");
-          expect(serialized).toContain("Thinking.");
-          expect(serialized).toContain("Final answer.");
-          expect(serialized).toContain("fixture.txt");
-          expect(f.events.filter((event) => event.type === "turn.terminal")).toHaveLength(1);
-        }),
-      ),
-    { timeout: 15_000 },
+  it.live("compacts the native conversation and keeps it usable for the next turn", () =>
+    provide(
+      Effect.gen(function* () {
+        const f = yield* fixture;
+        if (!f.runtime.compactThread) throw new Error("Native compaction is unavailable");
+        yield* f.runtime.compactThread(f.turnInput("/compact"));
+        expect((yield* Queue.take(f.terminals)).status).toBe("completed");
+        expect(JSON.stringify(f.events)).toContain("Compacted context.");
+        yield* f.runtime.startTurn(f.turnInput("after compaction", 2));
+        expect((yield* Queue.take(f.terminals)).status).toBe("completed");
+        expect(JSON.stringify(f.events)).toContain("Final answer.");
+        expect(f.providerThread.nativeThreadRef?.nativeId).toBe("mock-session");
+      }),
+    ),
   );
 
-  it.effect(
-    "loads existing native sessions without replaying history as a new reply",
-    () =>
-      provide(
-        Effect.gen(function* () {
-          const f = yield* fixture;
-          yield* Scope.close(f.sessionScope, Exit.void);
-          const resumed = yield* f.adapter.openSession({
-            ...f.sessionInput,
-            providerSessionId: ProviderSessionId.make("commandcode-resumed-session"),
-            initialNativeThreadId: "mock-session",
-          });
-          yield* f.observe(resumed);
-          const thread = yield* resumed.resumeThread({
-            providerThread: f.providerThread,
-            modelSelection,
-            runtimePolicy,
-          });
-          yield* resumed.startTurn(f.turnInput("after restart", 2, thread));
-          expect((yield* Queue.take(f.terminals)).status).toBe("completed");
-          expect(JSON.stringify(f.events)).not.toContain("Historical reply.");
-          expect(JSON.stringify(f.events)).toContain("Final answer.");
-        }),
-      ),
-    { timeout: 15_000 },
+  it.live("streams text, reasoning, and tools without losing the final answer", () =>
+    provide(
+      Effect.gen(function* () {
+        const f = yield* fixture;
+        expect(f.providerThread.nativeThreadRef?.nativeId).toBe("mock-session");
+        yield* f.runtime.startTurn(f.turnInput("hello"));
+        expect((yield* Queue.take(f.terminals)).status).toBe("completed");
+        expect(f.events.every(isEvent)).toBe(true);
+        const serialized = JSON.stringify(f.events);
+        expect(serialized).toContain("Before tool.");
+        expect(serialized).toContain("Thinking.");
+        expect(serialized).toContain("Final answer.");
+        expect(serialized).toContain("fixture.txt");
+        expect(f.events.filter((event) => event.type === "turn.terminal")).toHaveLength(1);
+      }),
+    ),
   );
 
-  it.effect(
-    "waits for approval and sends the selected permission to ACP",
-    () =>
-      provide(
-        Effect.gen(function* () {
-          const f = yield* fixture;
-          yield* f.runtime.startTurn(f.turnInput("permission"));
-          const event = yield* f.waitFor(
-            (event) =>
-              event.type === "runtime_request.updated" && event.runtimeRequest.status === "pending",
-          );
-          if (event.type !== "runtime_request.updated")
-            throw new Error("Expected permission request");
-          expect(f.events.filter((event) => event.type === "turn.terminal")).toHaveLength(0);
-          yield* f.runtime.respondToRuntimeRequest({
-            requestId: event.runtimeRequest.id,
-            decision: "accept",
-          });
-          expect((yield* Queue.take(f.terminals)).status).toBe("completed");
-        }),
-      ),
-    { timeout: 15_000 },
+  it.live("loads existing native sessions without replaying history as a new reply", () =>
+    provide(
+      Effect.gen(function* () {
+        const f = yield* fixture;
+        yield* Scope.close(f.sessionScope, Exit.void);
+        const resumed = yield* f.adapter.openSession({
+          ...f.sessionInput,
+          providerSessionId: ProviderSessionId.make("commandcode-resumed-session"),
+          initialNativeThreadId: "mock-session",
+        });
+        yield* f.observe(resumed);
+        const thread = yield* resumed.resumeThread({
+          providerThread: f.providerThread,
+          modelSelection,
+          runtimePolicy,
+        });
+        yield* resumed.startTurn(f.turnInput("after restart", 2, thread));
+        expect((yield* Queue.take(f.terminals)).status).toBe("completed");
+        expect(JSON.stringify(f.events)).not.toContain("Historical reply.");
+        expect(JSON.stringify(f.events)).toContain("Final answer.");
+      }),
+    ),
   );
 
-  it.effect(
-    "interrupts a pending native prompt exactly once",
-    () =>
-      provide(
-        Effect.gen(function* () {
-          const f = yield* fixture;
-          yield* f.runtime.startTurn(f.turnInput("hang"));
-          const event = yield* f.waitFor(
-            (event) =>
-              event.type === "provider_turn.updated" && event.providerTurn.status === "running",
-          );
-          if (event.type !== "provider_turn.updated") throw new Error("Expected running turn");
-          yield* f.waitFor(
-            (event) =>
-              event.type === "turn_item.updated" &&
-              JSON.stringify(event).includes("Waiting for cancellation"),
-          );
-          yield* f.runtime.interruptTurn({
-            providerThread: f.providerThread,
-            providerTurnId: event.providerTurn.id,
-          });
-          expect((yield* Queue.take(f.terminals)).status).toBe("interrupted");
-          expect(f.events.filter((event) => event.type === "turn.terminal")).toHaveLength(1);
-        }),
-      ),
-    { timeout: 15_000 },
+  it.live("waits for approval and sends the selected permission to ACP", () =>
+    provide(
+      Effect.gen(function* () {
+        const f = yield* fixture;
+        yield* f.runtime.startTurn(f.turnInput("permission"));
+        const event = yield* f.waitFor(
+          (event) =>
+            event.type === "runtime_request.updated" && event.runtimeRequest.status === "pending",
+        );
+        if (event.type !== "runtime_request.updated")
+          throw new Error("Expected permission request");
+        expect(f.events.filter((event) => event.type === "turn.terminal")).toHaveLength(0);
+        yield* f.runtime.respondToRuntimeRequest({
+          requestId: event.runtimeRequest.id,
+          decision: "accept",
+        });
+        expect((yield* Queue.take(f.terminals)).status).toBe("completed");
+      }),
+    ),
   );
 
-  it.effect(
-    "asks for a choice even in full access and returns the selected option",
-    () =>
-      provide(
-        Effect.gen(function* () {
-          const f = yield* fixture;
-          yield* f.runtime.startTurn({
-            ...f.turnInput("question"),
-            runtimePolicy: { ...runtimePolicy, runtimeMode: "full-access" },
-          });
-          const event = yield* f.waitFor(
-            (event) =>
-              event.type === "runtime_request.updated" &&
-              event.runtimeRequest.kind === "user_input" &&
-              event.runtimeRequest.status === "pending",
-          );
-          if (event.type !== "runtime_request.updated") throw new Error("Expected question");
-          expect(f.events.filter((event) => event.type === "turn.terminal")).toHaveLength(0);
-          yield* f.runtime.respondToRuntimeRequest({
-            requestId: event.runtimeRequest.id,
-            answers: { "question-1": ["option_1"] },
-          });
-          expect((yield* Queue.take(f.terminals)).status).toBe("completed");
-          expect(JSON.stringify(f.events)).toContain("option_1");
-        }),
-      ),
-    { timeout: 15_000 },
+  it.live("interrupts a pending native prompt exactly once", () =>
+    provide(
+      Effect.gen(function* () {
+        const f = yield* fixture;
+        yield* f.runtime.startTurn(f.turnInput("hang"));
+        const event = yield* f.waitFor(
+          (event) =>
+            event.type === "provider_turn.updated" && event.providerTurn.status === "running",
+        );
+        if (event.type !== "provider_turn.updated") throw new Error("Expected running turn");
+        yield* f.waitFor(
+          (event) =>
+            event.type === "turn_item.updated" &&
+            JSON.stringify(event).includes("Waiting for cancellation"),
+        );
+        yield* f.runtime.interruptTurn({
+          providerThread: f.providerThread,
+          providerTurnId: event.providerTurn.id,
+        });
+        expect((yield* Queue.take(f.terminals)).status).toBe("interrupted");
+        expect(f.events.filter((event) => event.type === "turn.terminal")).toHaveLength(1);
+      }),
+    ),
   );
 
-  it.effect(
-    "settles native RPC failures instead of leaving a turn spinning",
-    () =>
-      provide(
-        Effect.gen(function* () {
-          const f = yield* fixture;
-          yield* f.runtime.startTurn(f.turnInput("auth-error"));
-          const terminal = yield* Queue.take(f.terminals);
-          expect(terminal.status).toBe("failed");
-          expect(JSON.stringify(terminal)).toContain("Authentication expired");
-          expect(f.events.filter((event) => event.type === "turn.terminal")).toHaveLength(1);
-        }),
-      ),
-    { timeout: 15_000 },
+  it.live("asks for a choice even in full access and returns the selected option", () =>
+    provide(
+      Effect.gen(function* () {
+        const f = yield* fixture;
+        yield* f.runtime.startTurn({
+          ...f.turnInput("question"),
+          runtimePolicy: { ...runtimePolicy, runtimeMode: "full-access" },
+        });
+        const event = yield* f.waitFor(
+          (event) =>
+            event.type === "runtime_request.updated" &&
+            event.runtimeRequest.kind === "user_input" &&
+            event.runtimeRequest.status === "pending",
+        );
+        if (event.type !== "runtime_request.updated") throw new Error("Expected question");
+        expect(f.events.filter((event) => event.type === "turn.terminal")).toHaveLength(0);
+        yield* f.runtime.respondToRuntimeRequest({
+          requestId: event.runtimeRequest.id,
+          answers: { "question-1": ["option_1"] },
+        });
+        expect((yield* Queue.take(f.terminals)).status).toBe("completed");
+        expect(JSON.stringify(f.events)).toContain("option_1");
+      }),
+    ),
+  );
+
+  it.live("settles native RPC failures instead of leaving a turn spinning", () =>
+    provide(
+      Effect.gen(function* () {
+        const f = yield* fixture;
+        yield* f.runtime.startTurn(f.turnInput("auth-error"));
+        const terminal = yield* Queue.take(f.terminals);
+        expect(terminal.status).toBe("failed");
+        expect(JSON.stringify(terminal)).toContain("Authentication expired");
+        expect(f.events.filter((event) => event.type === "turn.terminal")).toHaveLength(1);
+      }),
+    ),
   );
 });
