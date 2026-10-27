@@ -12,7 +12,7 @@ const setup = () => ({
   models: { currentModelId: model, availableModels: [{ modelId: "model-a", name: "Model A" }] },
   modes: {
     currentModeId: mode,
-    availableModes: ["default", "plan", "bypass"].map((id) => ({ id, name: id })),
+    availableModes: ["default", "auto-accept", "plan", "bypass"].map((id) => ({ id, name: id })),
   },
   configOptions: [
     {
@@ -74,6 +74,14 @@ NodeReadline.createInterface({ input: process.stdin }).on("line", async (line) =
         .map((x) => x.text)
         .join("\n");
       const text = /<user_request>\s*([\s\S]*?)\s*<\/user_request>/.exec(prompt)?.[1] ?? prompt;
+      if (text === "/compact") {
+        update({
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: "Compacted context." },
+        });
+        result(request.id, { stopReason: "end_turn" });
+        break;
+      }
       if (text === "hang") {
         waitingPrompt = request.id;
         update({
