@@ -74,7 +74,9 @@ export function commandCodeSessionMode(policy: ProviderAdapter.ProviderAdapterV2
     ? "plan"
     : policy.runtimeMode === "full-access"
       ? "bypass"
-      : "default";
+      : policy.runtimeMode === "auto-accept-edits"
+        ? "auto-accept"
+        : "default";
 }
 
 export const makeCommandCodeAcpRuntime = Effect.fn("CommandCode.makeAcpRuntime")(function* (
@@ -121,6 +123,7 @@ export const makeCommandCodeAdapter = Effect.fn("makeCommandCodeAdapter")(functi
     flavor: {
       driver: COMMAND_CODE_DRIVER,
       capabilities: AcpProviderCapabilitiesV2,
+      supportsCompaction: true,
       extractPermissionQuestion: commandCodeQuestion,
       promptFailure: (cause) =>
         makeProviderFailure({
