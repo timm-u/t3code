@@ -51,7 +51,7 @@ const driver = ProviderDriverKind.make("commandcode");
 const decodeSettings = Schema.decodeSync(CommandCodeSettings);
 const decodeStatus = Schema.decodeEffect(Schema.fromJsonString(CommandCodeStatus));
 const equalCapabilities = Schema.toEquivalence(ModelCapabilities);
-export const commandCodeMaintenance = makePackageManagedProviderMaintenanceResolver({
+const commandCodeMaintenance = makePackageManagedProviderMaintenanceResolver({
   provider: driver,
   npmPackageName: "command-code",
   nativeUpdate: { args: ["update"] },
@@ -124,6 +124,7 @@ export const CommandCodeDriver: ProviderDriver<CommandCodeSettings, CommandCodeD
             displayName: "Command Code",
             showInteractionModeToggle: true,
             supportsConversationRollback: false,
+            supportedRuntimeModes: ["approval-required", "auto-accept-edits", "full-access"],
           },
           enabled: input.enabled,
           checkedAt,
@@ -174,6 +175,7 @@ export const CommandCodeDriver: ProviderDriver<CommandCodeSettings, CommandCodeD
             displayName: "Command Code",
             showInteractionModeToggle: true,
             supportsConversationRollback: false,
+            supportedRuntimeModes: ["approval-required", "auto-accept-edits", "full-access"],
           },
           enabled: input.enabled,
           checkedAt,
@@ -187,7 +189,14 @@ export const CommandCodeDriver: ProviderDriver<CommandCodeSettings, CommandCodeD
               optionDescriptors: [],
             },
           ),
-          slashCommands: discovery?.slashCommands ?? [],
+          slashCommands: discovery
+            ? [
+                ...discovery.slashCommands,
+                ...(discovery.slashCommands.some((command) => command.name === "compact")
+                  ? []
+                  : [{ name: "compact", description: "Compact context" }]),
+              ]
+            : [],
           probe: {
             installed: true,
             version: status.success.version,
