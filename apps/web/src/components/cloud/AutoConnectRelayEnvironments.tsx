@@ -28,12 +28,12 @@ export function AutoConnectRelayEnvironments() {
   });
   const attemptedEnvironmentIdsRef = useRef(new Set<EnvironmentId>());
 
-  // oxlint-disable-next-line t3code/react-effect-budget -- Relay discovery is an external service refreshed once on mount.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Relay discovery is an external service refreshed once on mount.
   useEffect(() => {
     void refreshRelayEnvironments();
   }, [refreshRelayEnvironments]);
 
-  // oxlint-disable-next-line t3code/react-effect-budget -- Online relay machines must be registered through an asynchronous catalog command.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Online relay machines must be registered through an asynchronous catalog command.
   useEffect(() => {
     const connectEnvironment = async (environmentId: EnvironmentId, label: string) => {
       const result = await registerEnvironment(

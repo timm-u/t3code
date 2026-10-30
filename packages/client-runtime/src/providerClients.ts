@@ -29,7 +29,11 @@ export const openRouterIcon: ProviderIcon = {
 };
 
 export const providerClients = makeProviderClientRegistry([
-  { driverKind: ProviderDriverKind.make("commandcode"), label: "Command Code", settingsSchema: CommandCodeSettings },
+  {
+    driverKind: ProviderDriverKind.make("commandcode"),
+    label: "Command Code",
+    settingsSchema: CommandCodeSettings,
+  },
   {
     driverKind: ProviderDriverKind.make("codex"),
     label: "Codex",
@@ -73,4 +77,3 @@ export function resolveModelShortName(
   const families = driverKind ? providerClients.get(driverKind)?.modelFamilies : undefined;
   return modelShortName(model.name, families ?? []);
 }
-
