@@ -3622,5 +3622,3 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   );
 }
 
-
-
