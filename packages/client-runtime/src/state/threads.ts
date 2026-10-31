@@ -1058,13 +1058,16 @@ export function createEnvironmentThreadStateAtoms<R, E>(
     | R,
     E
   >,
+  threadPresentAtom?: (
+    environmentId: EnvironmentIdType,
+    threadId: ThreadIdType,
+  ) => Atom.Atom<boolean>,
 ) {
   // Cache definitions must outlive collectible live-atom definitions. The
   // registry retains these nodes without retaining environment or RPC scopes.
   const resumeFamily = Atom.family((key: string) =>
-    Atom.make((): ThreadResumeCache => ({
-      snapshot: undefined,
-      owner: undefined,
+    Atom.make((): { current: ThreadResumeCache } => ({
+      current: { snapshot: undefined, owner: undefined },
     })).pipe(
       Atom.setIdleTTL(THREAD_SNAPSHOT_IDLE_TTL_MS),
       Atom.withLabel(`environment-thread-resume:${key}`),
@@ -1073,11 +1076,18 @@ export function createEnvironmentThreadStateAtoms<R, E>(
   const family = Atom.family((key: string) => {
     const { environmentId, threadId } = parseThreadKey(key);
     const resumeAtom = resumeFamily(key);
+    const presentAtom = threadPresentAtom?.(environmentId, threadId);
     return runtime
       .atom(
         (get) => {
           get.mount(resumeAtom);
-          const resume = get.once(resumeAtom);
+          const present = presentAtom === undefined ? false : get(presentAtom);
+          const slot = get.once(resumeAtom);
+          if (present && slot.current.snapshot?.state.status === "deleted") {
+            // A shell record supersedes a pre-creation miss. Isolate the new cache from the old scope's finalizer.
+            slot.current = { snapshot: undefined, owner: undefined };
+          }
+          const resume = slot.current;
           const live = threadStateChanges(environmentId, threadId, resume);
           return resume.snapshot === undefined
             ? live

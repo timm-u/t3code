@@ -18,6 +18,7 @@ import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
+import * as TestClock from "effect/testing/TestClock";
 import { Atom, AtomRegistry } from "effect/reactivity";
 
 import type { ConnectionCatalogEntry } from "../connection/catalog.ts";
@@ -54,6 +55,7 @@ const SNAPSHOT: OrchestrationV2ThreadDetailSnapshot = { snapshotSequence: 7, pro
 const makeHarness = Effect.fn("TestThreadAtoms.makeHarness")(function* (options?: {
   readonly snapshot?: OrchestrationV2ThreadDetailSnapshot;
   readonly snapshotUnavailable?: boolean;
+  readonly snapshotMissing?: boolean;
 }) {
   const subscriptions = yield* Queue.unbounded<{
     readonly afterSequence: number | undefined;
@@ -66,6 +68,8 @@ const makeHarness = Effect.fn("TestThreadAtoms.makeHarness")(function* (options?
     readonly closed: Deferred.Deferred<void>;
   }>();
   const snapshot = options?.snapshot ?? SNAPSHOT;
+  let snapshotMissing = options?.snapshotMissing ?? false;
+  const threadPresent = Atom.make(false).pipe(Atom.keepAlive);
   let httpLoads = 0;
   let diskLoads = 0;
   let opened = 0;
@@ -191,6 +195,7 @@ const makeHarness = Effect.fn("TestThreadAtoms.makeHarness")(function* (options?
           load: () =>
             Effect.sync(() => {
               httpLoads += 1;
+              if (snapshotMissing) return { _tag: "missing" as const };
               if (options?.snapshotUnavailable === true) {
                 return { _tag: "unavailable" as const };
               }
@@ -212,7 +217,7 @@ const makeHarness = Effect.fn("TestThreadAtoms.makeHarness")(function* (options?
       ),
     ),
   );
-  const raw = createEnvironmentThreadStateAtoms(runtime);
+  const raw = createEnvironmentThreadStateAtoms(runtime, () => threadPresent);
   const details = createEnvironmentThreadDetailAtoms(raw.stateAtom);
   const ref = { environmentId: TARGET.environmentId, threadId: THREAD_ID };
   const stateAtom = details.stateAtom(ref);
@@ -233,6 +238,10 @@ const makeHarness = Effect.fn("TestThreadAtoms.makeHarness")(function* (options?
     olderLoads,
     loadEarlier: () => historyController.loadEarlier(TARGET.environmentId, THREAD_ID),
     counts: () => ({ httpLoads, diskLoads, opened, active }),
+    threadPresent,
+    setSnapshotMissing: (missing: boolean) => {
+      snapshotMissing = missing;
+    },
   };
 });
 
@@ -256,6 +265,24 @@ function currentThread(
 }
 
 describe("createEnvironmentThreadStateAtoms", () => {
+  it.effect("recovers a pre-creation miss when the shell confirms the thread exists", () =>
+    Effect.gen(function* () {
+      const h = yield* makeHarness({ snapshotMissing: true });
+      const unmount = h.registry.mount(h.stateAtom);
+      yield* observeState(h.registry, h.stateAtom, (state) => state.status === "deleted");
+      h.setSnapshotMissing(false);
+      h.registry.set(h.threadPresent, true);
+      yield* TestClock.adjust(0);
+      expect(h.counts().httpLoads).toBe(2);
+      const subscription = yield* Queue.take(h.subscriptions);
+      yield* Queue.offer(subscription.events, { kind: "synchronized" });
+      yield* observeState(h.registry, h.stateAtom, (state) => state.status === "live");
+      expect(currentThread(h.registry, h.stateAtom).thread.title).toBe("Cached thread");
+      unmount();
+      yield* Deferred.await(subscription.closed);
+    }),
+  );
+
   afterEach(() => {
     vi.useRealTimers();
     vi.restoreAllMocks();
