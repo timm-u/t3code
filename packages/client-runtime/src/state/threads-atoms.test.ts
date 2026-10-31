@@ -69,7 +69,13 @@ const makeHarness = Effect.fn("TestThreadAtoms.makeHarness")(function* (options?
   }>();
   const snapshot = options?.snapshot ?? SNAPSHOT;
   let snapshotMissing = options?.snapshotMissing ?? false;
-  const threadPresent = Atom.make(false).pipe(Atom.keepAlive);
+  const threadShell = Atom.make<{ title: string; deletedAt: string | null } | null>(null).pipe(
+    Atom.keepAlive,
+  );
+  const threadPresent = Atom.map(
+    threadShell,
+    (thread) => thread !== null && thread.deletedAt === null,
+  );
   let httpLoads = 0;
   let diskLoads = 0;
   let opened = 0;
@@ -238,7 +244,7 @@ const makeHarness = Effect.fn("TestThreadAtoms.makeHarness")(function* (options?
     olderLoads,
     loadEarlier: () => historyController.loadEarlier(TARGET.environmentId, THREAD_ID),
     counts: () => ({ httpLoads, diskLoads, opened, active }),
-    threadPresent,
+    threadShell,
     setSnapshotMissing: (missing: boolean) => {
       snapshotMissing = missing;
     },
@@ -271,15 +277,70 @@ describe("createEnvironmentThreadStateAtoms", () => {
       const unmount = h.registry.mount(h.stateAtom);
       yield* observeState(h.registry, h.stateAtom, (state) => state.status === "deleted");
       h.setSnapshotMissing(false);
-      h.registry.set(h.threadPresent, true);
-      yield* TestClock.adjust(0);
-      expect(h.counts().httpLoads).toBe(2);
+      h.registry.set(h.threadShell, { title: "Created thread", deletedAt: null });
       const subscription = yield* Queue.take(h.subscriptions);
+      expect(h.counts()).toMatchObject({ httpLoads: 2, opened: 1 });
       yield* Queue.offer(subscription.events, { kind: "synchronized" });
       yield* observeState(h.registry, h.stateAtom, (state) => state.status === "live");
       expect(currentThread(h.registry, h.stateAtom).thread.title).toBe("Cached thread");
       unmount();
       yield* Deferred.await(subscription.closed);
+      expect(h.counts().active).toBe(0);
+    }),
+  );
+
+  it.effect("reloads a retained miss on remount once the shell reports the thread", () =>
+    Effect.gen(function* () {
+      const h = yield* makeHarness({ snapshotMissing: true });
+      const unmount = h.registry.mount(h.stateAtom);
+      yield* observeState(h.registry, h.stateAtom, (state) => state.status === "deleted");
+      unmount();
+      h.setSnapshotMissing(false);
+      h.registry.set(h.threadShell, { title: "Created thread", deletedAt: null });
+      const remount = h.registry.mount(h.stateAtom);
+      const subscription = yield* Queue.take(h.subscriptions);
+      expect(h.counts()).toMatchObject({ httpLoads: 2, opened: 1 });
+      yield* Queue.offer(subscription.events, { kind: "synchronized" });
+      yield* observeState(h.registry, h.stateAtom, (state) => state.status === "live");
+      remount();
+      yield* Deferred.await(subscription.closed);
+      expect(h.counts().active).toBe(0);
+    }),
+  );
+
+  it.effect("keeps the live subscription when a confirmed shell changes or disappears", () =>
+    Effect.gen(function* () {
+      const h = yield* makeHarness();
+      h.registry.set(h.threadShell, { title: "Created thread", deletedAt: null });
+      const unmount = h.registry.mount(h.stateAtom);
+      const subscription = yield* Queue.take(h.subscriptions);
+      yield* Queue.offer(subscription.events, { kind: "synchronized" });
+      yield* observeState(h.registry, h.stateAtom, (state) => state.status === "live");
+      for (const shell of [
+        { title: "Renamed once", deletedAt: null },
+        { title: "Renamed twice", deletedAt: null },
+        null,
+      ]) {
+        h.registry.set(h.threadShell, shell);
+        yield* TestClock.adjust(0);
+        expect(h.counts()).toEqual({ httpLoads: 1, diskLoads: 1, opened: 1, active: 1 });
+        expect(yield* Queue.size(h.subscriptions)).toBe(0);
+      }
+      unmount();
+      yield* Deferred.await(subscription.closed);
+      expect(h.counts().active).toBe(0);
+    }),
+  );
+
+  it.effect("parks a definitive miss even when the shell is stale and reports presence", () =>
+    Effect.gen(function* () {
+      const h = yield* makeHarness({ snapshotMissing: true });
+      h.registry.set(h.threadShell, { title: "Stale thread", deletedAt: null });
+      const unmount = h.registry.mount(h.stateAtom);
+      yield* observeState(h.registry, h.stateAtom, (state) => state.status === "deleted");
+      yield* TestClock.adjust("1 second");
+      expect(h.counts()).toEqual({ httpLoads: 1, diskLoads: 1, opened: 0, active: 0 });
+      unmount();
     }),
   );
 

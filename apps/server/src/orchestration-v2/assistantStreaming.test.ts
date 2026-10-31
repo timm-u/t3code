@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import { ProviderDriverKind, ThreadId, TurnItemId } from "@t3tools/contracts";
+import { MessageId, ProviderDriverKind, ThreadId, TurnItemId } from "@t3tools/contracts";
 import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import * as DateTime from "effect/DateTime";
 import { makeAssistantStreamingFilter, splitBufferedAssistantText } from "./assistantStreaming.ts";
@@ -38,6 +38,16 @@ describe("V2 assistant streaming", () => {
     };
     expect(filter(next, 200)).toBeNull();
     expect(filter(next, 400)).toEqual(next);
+    const answer = {
+      ...event,
+      turnItem: {
+        ...event.turnItem,
+        id: TurnItemId.make("streaming-answer"),
+        messageId: MessageId.make("streaming-answer-message"),
+        type: "assistant_message" as const,
+      },
+    };
+    expect(filter(answer, 0)).toBeNull();
     expect(makeAssistantStreamingFilter("turn")(event, 0)).toBeNull();
     const completed = {
       ...next,

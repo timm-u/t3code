@@ -1081,7 +1081,8 @@ export function createEnvironmentThreadStateAtoms<R, E>(
       .atom(
         (get) => {
           get.mount(resumeAtom);
-          const present = presentAtom === undefined ? false : get(presentAtom);
+          // Once present, the live stream owns shell removals; only wait for presence while absent.
+          const present = presentAtom !== undefined && (get.once(presentAtom) || get(presentAtom));
           const slot = get.once(resumeAtom);
           if (present && slot.current.snapshot?.state.status === "deleted") {
             // A shell record supersedes a pre-creation miss. Isolate the new cache from the old scope's finalizer.
