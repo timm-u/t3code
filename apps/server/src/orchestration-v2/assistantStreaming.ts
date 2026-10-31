@@ -203,7 +203,10 @@ export function makeAssistantStreamingFilter(
       if (previous && now - previous.at < 400) return hold();
       const scan = advanceScan(previous?.scan ?? EMPTY_SCAN, message.text);
       const boundary = readyBoundary(scan);
-      const ready = boundary === -1 ? "" : message.text.slice(0, boundary);
+      const ready =
+        event.type === "turn_item.updated" && event.turnItem.type === "reasoning"
+          ? message.text
+          : boundary === -1 ? "" : message.text.slice(0, boundary);
       // An idle delivery may already show more than the next boundary; never shrink it. A
       // provider rewrite or truncation is not a prefix and replaces it.
       if (delivered.startsWith(ready)) return hold(scan);
