@@ -96,7 +96,10 @@ export function makeAssistantStreamingFilter(mode: ResponseStreamingMode) {
     if (mode === "turn") return null;
     const previous = delivered.get(key);
     if (previous && now - previous.at < 400) return null;
-    const { ready } = splitBufferedAssistantText(message.text);
+    const ready =
+      event.type === "turn_item.updated" && event.turnItem.type === "reasoning"
+        ? message.text
+        : splitBufferedAssistantText(message.text).ready;
     if (!ready || ready === previous?.text) return null;
     delivered.set(key, { text: ready, at: now });
     if (event.type === "message.updated")
