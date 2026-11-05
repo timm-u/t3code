@@ -1,6 +1,5 @@
 import { rankModelPickerSearch, type ModelPickerSearchableModel } from "./modelSearch.ts";
 
-const COMPOSER_MODEL_MENTION_LIMIT = 8;
 
 const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
 
@@ -39,7 +38,7 @@ export function rankComposerModelMentions<T>(
       return tokens.every((token) => token.test(haystack));
     });
     const ranked = rankModelPickerSearch(literal, words, toSearchable);
-    if (ranked.length > 0) return ranked.slice(0, COMPOSER_MODEL_MENTION_LIMIT);
+    if (ranked.length > 0) return ranked;
   }
   return [];
 }
