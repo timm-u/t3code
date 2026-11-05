@@ -41,6 +41,36 @@ describe("rankComposerModelMentions", () => {
     expect(rank("gpt").toSorted()).toEqual(["opencode:traex-gpt", "traex:gpt"]);
   });
 
+  it("keeps matching CommandCode models after more than eight matches from other providers", () => {
+    const candidates = [
+      ...Array.from({ length: 9 }, (_, index) => ({
+        id: `opencode:deepseek-${index}`,
+        name: `DeepSeek V4 Flash ${index}`,
+        driverKind: "opencode",
+        providerDisplayName: "OpenCode",
+      })),
+      {
+        id: "commandcode:deepseek/deepseek-v4.1-flash",
+        name: "DeepSeek V4.1 Flash (latest)",
+        driverKind: "commandcode",
+        providerDisplayName: "Command Code",
+      },
+    ];
+    expect(rankComposerModelMentions(candidates, "deepseek", (model) => model)).toEqual(candidates);
+  });
+
+  it.each(["commandcode", "commandcode:deepseek", "commandcode/deepseek"])(
+    "keeps every matching CommandCode model for @%s",
+    (query) => {
+      const candidates = Array.from({ length: 12 }, (_, index) => ({
+        name: `DeepSeek V4 Flash ${index}`,
+        driverKind: "commandcode",
+        providerDisplayName: "Command Code",
+      }));
+      expect(rankComposerModelMentions(candidates, query, (model) => model)).toEqual(candidates);
+    },
+  );
+
   it("splits words a mention joins with :, / or -", () => {
     expect(rank("opencode:traex")).toEqual(["opencode:traex-gpt"]);
     expect(rank("opencode/gpt")).toEqual(["opencode:traex-gpt"]);
