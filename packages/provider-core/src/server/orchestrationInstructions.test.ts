@@ -68,6 +68,18 @@ describe("T3 device instructions", () => {
     assert.equal(laterRun(true), "Check the login screen.");
   });
 
+  it("tell only ACP agents that a turn-end nudge is automatic and to pass briefs by file", () => {
+    const acp = t3AcpPromptWithInstructions({
+      prompt: "Delegate the review.",
+      state: { interactionMode: "default", hasT3Mcp: true, hasDeviceTools: false },
+    });
+    assert.include(acp, "That message is automatic, not from the user.");
+    assert.include(acp, 'acp-mcp-call delegate_task "@<file>"');
+    const system = t3OrchestrationSystemPrompt(true, false);
+    assert.notInclude(system, "ACP turn end");
+    assert.notInclude(system, "acp-mcp-call");
+  });
+
   it("reach ACP agents again when device access changes mid-thread", () => {
     const state = { interactionMode: "default", hasT3Mcp: true, hasDeviceTools: false } as const;
     const withDevices = t3AcpPromptWithInstructions({

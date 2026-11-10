@@ -12,6 +12,7 @@ import * as Exit from "effect/Exit";
 import * as Stream from "effect/Stream";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
+  EnvironmentId,
   ProviderInstanceId,
   ProviderSessionId,
   ThreadId,
@@ -25,6 +26,7 @@ import {
 import { ServerConfig } from "../../config.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
+import type * as AcpSessionRuntime from "@t3tools/provider-acp/server/AcpSessionRuntime";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import { execScriptSource, writeFakeCli } from "@t3tools/provider-testing/fakeCli";
 import { resolveSelfInvocation } from "@t3tools/shared/nodeRuntime";
@@ -181,6 +183,68 @@ describe("Command Code ACP adapter", () => {
       }),
     ).toBe("plan");
   });
+
+  it.live("gives Command Code T3's MCP server over HTTP instead of a spawned bridge", () =>
+    provide(
+      Effect.gen(function* () {
+        const config = yield* ServerConfig;
+        const binaryPath = yield* Effect.sync(() =>
+          writeFakeCli({
+            directory: config.stateDir,
+            name: "commandcode-mock",
+            source: execScriptSource({
+              scriptPath: NodeURL.fileURLToPath(
+                new URL("../../../scripts/commandcode-mock-agent.mjs", import.meta.url),
+              ),
+            }),
+          }),
+        );
+        const endpoint = "http://127.0.0.1:43123/mcp";
+        yield* (yield* McpProviderSessions.McpProviderSessions).set({
+          environmentId: EnvironmentId.make("commandcode-mcp-environment"),
+          threadId,
+          providerSessionId: "commandcode-mcp-session",
+          providerInstanceId: instanceId,
+          endpoint,
+          authorizationHeader: "Bearer commandcode-token",
+          browserToolsAvailable: false,
+        });
+        const requests: Array<AcpSessionRuntime.AcpSessionRequestLogEvent> = [];
+        const adapter = yield* makeCommandCodeAdapter({
+          binaryPath,
+          environment: process.env,
+          instanceId,
+          selfInvocation: yield* resolveSelfInvocation(),
+          nativeLogging: () => ({
+            requestLogger: (event) =>
+              Effect.sync(() => {
+                if (event.status === "started") requests.push(event);
+              }),
+          }),
+        });
+        const runtime = yield* adapter.openSession({
+          threadId,
+          providerSessionId: ProviderSessionId.make("commandcode-mcp-provider-session"),
+          modelSelection,
+          runtimePolicy,
+        });
+        yield* runtime.ensureThread({ threadId, modelSelection, runtimePolicy });
+        const payload = requests.find((event) => event.method === "session/new")?.payload;
+        expect(
+          typeof payload === "object" && payload !== null
+            ? Reflect.get(payload, "mcpServers")
+            : undefined,
+        ).toEqual([
+          {
+            type: "http",
+            name: "t3-code",
+            url: endpoint,
+            headers: [{ name: "Authorization", value: "Bearer commandcode-token" }],
+          },
+        ]);
+      }),
+    ),
+  );
 
   it.live("compacts the native conversation and keeps it usable for the next turn", () =>
     provide(

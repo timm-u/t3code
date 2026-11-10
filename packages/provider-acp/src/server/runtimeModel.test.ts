@@ -1287,6 +1287,13 @@ describe("extractMcpToolCallIdentity", () => {
         ],
       }),
     ).toEqual({ server: "t3-code", tool: "delegate_task", input: { task: "x" } });
+    expect(
+      extractMcpToolCallIdentity(toolCall, {
+        embeddedTerminalCommands: [
+          '/usr/bin/node /srv/t3/bin.ts acp-mcp-call delegate_task "@/tmp/task.json"',
+        ],
+      }),
+    ).toEqual({ server: "t3-code", tool: "delegate_task" });
   });
 
   it("recovers T3 identity from pi-acp title-only fallback execs", () => {

@@ -123,6 +123,9 @@ export const makeCommandCodeAdapter = Effect.fn("makeCommandCodeAdapter")(functi
     flavor: {
       driver: COMMAND_CODE_DRIVER,
       capabilities: AcpProviderCapabilitiesV2,
+      // Command Code spawns stdio MCP servers through cmd.exe on Windows without quoting,
+      // so a T3 install path with spaces fails silently. It advertises HTTP MCP; use that.
+      mcpOverHttp: true,
       supportsCompaction: true,
       extractPermissionQuestion: commandCodeQuestion,
       promptFailure: (cause) =>

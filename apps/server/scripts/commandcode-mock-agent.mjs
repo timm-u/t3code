@@ -38,7 +38,11 @@ NodeReadline.createInterface({ input: process.stdin }).on("line", async (line) =
       result(request.id, {
         protocolVersion: 1,
         agentInfo: { name: "Command Code mock", version: "1.0.0" },
-        agentCapabilities: { loadSession: true, promptCapabilities: { image: true } },
+        agentCapabilities: {
+          loadSession: true,
+          promptCapabilities: { image: true },
+          mcpCapabilities: { http: true, sse: false },
+        },
       });
       break;
     case "session/new":
