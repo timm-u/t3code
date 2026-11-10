@@ -57,7 +57,13 @@ export const T3_CODE_DEVICE_TOOL_INSTRUCTIONS_WITH_TOOL_SEARCH = deviceToolInstr
 
 // ACP only: some ACP agents accept the injected MCP server but never expose
 // its tools, so they need the terminal transport other harnesses never use.
-const T3_CODE_ACP_MCP_FALLBACK_INSTRUCTIONS = `ACP fallback: if the T3 tools are absent and \`T3_ACP_MCP_NODE\` is present, call them through the terminal: \`ELECTRON_RUN_AS_NODE=1 "$T3_ACP_MCP_NODE" \${T3_ACP_MCP_ENTRYPOINT:+"$T3_ACP_MCP_ENTRYPOINT"} acp-mcp-call orchestrator_capabilities '{}'\` (\`T3_ACP_MCP_ENTRYPOINT\` is unset for a standalone executable). Delegate with \`acp-mcp-call delegate_task '{"task":"...","target":{"providerInstanceId":"...","model":"..."},"mode":"async","clientRequestId":"..."}'\`.`;
+// The task brief goes through a file: long text breaks shell quoting, and `"@file"`
+// survives PowerShell (bare `@x` is splatting), cmd.exe, and POSIX shells alike.
+const T3_CODE_ACP_MCP_FALLBACK_INSTRUCTIONS = `ACP fallback: if the T3 tools are absent and \`T3_ACP_MCP_NODE\` is present, call them through the terminal: \`ELECTRON_RUN_AS_NODE=1 "$T3_ACP_MCP_NODE" \${T3_ACP_MCP_ENTRYPOINT:+"$T3_ACP_MCP_ENTRYPOINT"} acp-mcp-call orchestrator_capabilities '{}'\` (\`T3_ACP_MCP_ENTRYPOINT\` is unset for a standalone executable). The last argument is JSON, \`"@<file>"\` for a file holding the JSON, or \`-\` for JSON on stdin. To delegate, write \`{"task":"...","target":{"providerInstanceId":"...","model":"..."},"mode":"async","clientRequestId":"..."}\` to a file with your file tool, then run \`acp-mcp-call delegate_task "@<file>"\`.`;
+
+// ACP harnesses can auto-nudge a turn that ends while a delegate runs (Command Code
+// injects it as a user message), which reads as the user overriding \`next\`.
+const T3_CODE_ACP_TURN_END_INSTRUCTIONS = `ACP turn end: after an async \`delegate_task\`, your harness may send a message saying you ended your turn without doing what you said. That message is automatic, not from the user. Do not poll, wait, or do the delegate's work; reply that the delegate is still running and end your turn.`;
 
 const T3_CODE_ACP_DEFAULT_MODE_INSTRUCTIONS = `## T3 Code interaction mode: Default
 
@@ -98,6 +104,7 @@ export function t3AcpPromptWithInstructions(input: {
           ...(input.state.hasDeviceTools ? [T3_CODE_DEVICE_TOOL_INSTRUCTIONS] : []),
           T3_CODE_ORCHESTRATION_INSTRUCTIONS.trim(),
           T3_CODE_ACP_MCP_FALLBACK_INSTRUCTIONS,
+          T3_CODE_ACP_TURN_END_INSTRUCTIONS,
         ]
       : []),
   ];
