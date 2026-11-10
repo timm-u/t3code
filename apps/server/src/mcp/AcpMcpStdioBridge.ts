@@ -1,5 +1,6 @@
 // Relay JSON-RPC verbatim; schema decoding would reject foreign payloads.
 // @effect-diagnostics nodeBuiltinImport:off globalJsonInEffect:off
+import * as NodeFSP from "node:fs/promises";
 import * as NodeReadline from "node:readline";
 
 import * as Cause from "effect/Cause";
@@ -328,10 +329,40 @@ export function runAcpMcpStdioBridge(options: AcpMcpStdioBridgeOptions): Effect.
   });
 }
 
+// The UTF-16 decoder covers PowerShell 5.1 redirects; both decoders drop a BOM.
+function decodeCallArguments(bytes: Uint8Array): string {
+  return new TextDecoder(bytes[0] === 0xff && bytes[1] === 0xfe ? "utf-16le" : "utf-8").decode(
+    bytes,
+  );
+}
+
+/** Long task text breaks shell quoting and argv limits, so `@file` and `-` (stdin) hold the JSON. */
+async function readCallArguments(
+  source: string,
+  input: AsyncIterable<Uint8Array | string>,
+): Promise<string> {
+  if (source.startsWith("@")) {
+    return decodeCallArguments(await NodeFSP.readFile(source.slice(1)));
+  }
+  if (source !== "-") return source;
+  const chunks: Array<Uint8Array> = [];
+  for await (const chunk of input) {
+    chunks.push(typeof chunk === "string" ? new TextEncoder().encode(chunk) : chunk);
+  }
+  const bytes = new Uint8Array(chunks.reduce((total, chunk) => total + chunk.length, 0));
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return decodeCallArguments(bytes);
+}
+
 /** Avoid heavy imports on the ACP first-message path. */
 export async function runAcpMcpCliFastPath(
   command: "acp-mcp-bridge" | "acp-mcp-call",
   args: ReadonlyArray<string>,
+  input: AsyncIterable<Uint8Array | string> = process.stdin,
 ): Promise<void> {
   const endpoint = process.env.T3_ACP_MCP_ENDPOINT;
   const authorization = process.env.T3_ACP_MCP_AUTHORIZATION;
@@ -351,9 +382,19 @@ export async function runAcpMcpCliFastPath(
     );
     return;
   }
-  const [tool, argumentsJson] = args;
-  if (tool === undefined || argumentsJson === undefined) {
-    process.stderr.write("acp-mcp-call requires <tool> and <arguments-json>.\n");
+  const [tool, argumentsSource] = args;
+  if (tool === undefined || argumentsSource === undefined) {
+    process.stderr.write('acp-mcp-call requires <tool> and <arguments-json | "@file" | ->.\n');
+    process.exitCode = 2;
+    return;
+  }
+  let argumentsJson: string;
+  try {
+    argumentsJson = await readCallArguments(argumentsSource, input);
+  } catch (error) {
+    process.stderr.write(
+      `acp-mcp-call cannot read arguments from ${argumentsSource}: ${error instanceof Error ? error.message : String(error)}\n`,
+    );
     process.exitCode = 2;
     return;
   }
@@ -361,7 +402,9 @@ export async function runAcpMcpCliFastPath(
   try {
     parsed = JSON.parse(argumentsJson);
   } catch {
-    process.stderr.write("acp-mcp-call arguments must be valid JSON.\n");
+    process.stderr.write(
+      'acp-mcp-call arguments must be valid JSON, "@file" holding JSON, or - for JSON on stdin.\n',
+    );
     process.exitCode = 2;
     return;
   }

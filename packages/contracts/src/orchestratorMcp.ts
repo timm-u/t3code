@@ -197,8 +197,10 @@ export const OrchestratorMcpDelegateTaskInput = Schema.Struct({
 export type OrchestratorMcpDelegateTaskInput = typeof OrchestratorMcpDelegateTaskInput.Type;
 
 // Set only on results for still-running tasks whose completion will wake the parent.
+// Close on a status, not a promise: some harnesses (Command Code) treat a reply that
+// ends in "I'll ..." as unfinished and inject a user-role "do it now" message.
 export const ORCHESTRATOR_MCP_RUNNING_TASK_NEXT =
-  "Completion wakes this thread, so end your turn. Do not wait on it or poll it.";
+  'Completion wakes this thread, so end your turn. Do not wait on it or poll it. Close with a status ("It is running."), not a promise ("I\'ll report back").';
 const OrchestratorMcpRunningTaskNext = Schema.Literal(ORCHESTRATOR_MCP_RUNNING_TASK_NEXT);
 
 export const OrchestratorMcpDelegateTaskResult = Schema.Struct({

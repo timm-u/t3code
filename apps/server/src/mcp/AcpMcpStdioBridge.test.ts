@@ -1,4 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off globalTimers:off
+import * as NodeFS from "node:fs";
+import * as NodeOS from "node:os";
+import * as NodePath from "node:path";
 import * as NodeStream from "node:stream";
 
 import { describe, expect, it } from "@effect/vitest";
@@ -85,6 +88,72 @@ describe("AcpMcpStdioBridge", () => {
       "http://127.0.0.1:1/mcp",
       expect.objectContaining({ method: "DELETE" }),
     );
+  });
+
+  it("reads call arguments from a file or stdin so long tasks avoid shell quoting", async () => {
+    const originalEnvironment = process.env;
+    const originalExitCode = process.exitCode;
+    const directory = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-acp-mcp-call-"));
+    using _cleanup = {
+      [Symbol.dispose]: () => {
+        process.env = originalEnvironment;
+        process.exitCode = originalExitCode;
+        NodeFS.rmSync(directory, { recursive: true, force: true });
+      },
+    };
+    process.env = {
+      ...originalEnvironment,
+      T3_ACP_MCP_ENDPOINT: "http://127.0.0.1:1/mcp",
+      T3_ACP_MCP_AUTHORIZATION: "Bearer bridge-test",
+    };
+    const sentArguments: Array<unknown> = [];
+    using fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async (_url, init) => {
+      if (init?.method === "DELETE") return new Response(null, { status: 204 });
+      const message = JSON.parse(String(init?.body)) as {
+        id?: string;
+        method: string;
+        params?: { arguments?: unknown };
+      };
+      if (message.method === "notifications/initialized") {
+        return new Response(null, { status: 202 });
+      }
+      if (message.method === "tools/call") sentArguments.push(message.params?.arguments);
+      return Response.json(
+        {
+          jsonrpc: "2.0",
+          id: message.id,
+          result:
+            message.method === "initialize"
+              ? { protocolVersion: "2025-06-18" }
+              : { content: [{ type: "text", text: "ok" }] },
+        },
+        { headers: { "mcp-session-id": "session-42" } },
+      );
+    });
+    using _output = vi.spyOn(process.stdout, "write").mockReturnValue(true);
+    using errors = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+    const task = { task: 'Review "quoted" text\nacross lines', mode: "async" };
+    const utf8File = NodePath.join(directory, "utf8-bom.json");
+    NodeFS.writeFileSync(utf8File, `﻿${JSON.stringify(task)}`, "utf8");
+    const utf16File = NodePath.join(directory, "utf16le.json");
+    NodeFS.writeFileSync(utf16File, `﻿${JSON.stringify(task)}`, "utf16le");
+    const stdin = new NodeStream.PassThrough();
+    stdin.end(JSON.stringify(task));
+
+    await runAcpMcpCliFastPath("acp-mcp-call", ["delegate_task", `@${utf8File}`]);
+    await runAcpMcpCliFastPath("acp-mcp-call", ["delegate_task", `@${utf16File}`]);
+    await runAcpMcpCliFastPath("acp-mcp-call", ["delegate_task", "-"], stdin);
+    expect(sentArguments).toEqual([task, task, task]);
+    expect(errors).not.toHaveBeenCalled();
+
+    fetch.mockClear();
+    await runAcpMcpCliFastPath("acp-mcp-call", [
+      "delegate_task",
+      `@${NodePath.join(directory, "missing.json")}`,
+    ]);
+    expect(process.exitCode).toBe(2);
+    expect(String(errors.mock.calls[0]?.[0])).toContain("cannot read arguments from @");
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it.effect("forwards requests and replays the session id and protocol version", () =>
