@@ -1,6 +1,5 @@
 import { rankModelPickerSearch, type ModelPickerSearchableModel } from "./modelSearch.ts";
 
-
 const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
 
 /** Mentions can't contain spaces, so `:`, `/` and `-` split words, as in `@gpt:traex`. */

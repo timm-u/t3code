@@ -1,5 +1,5 @@
 import { ProviderDriverKind, type ProviderInstanceId } from "@t3tools/contracts";
-import * as Crypto from "effect/Crypto";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
@@ -89,7 +89,7 @@ export const makeCommandCodeAcpRuntime = Effect.fn("CommandCode.makeAcpRuntime")
 ): Effect.fn.Return<
   AcpSessionRuntime.AcpSessionRuntime["Service"],
   EffectAcpErrors.AcpError,
-  Crypto.Crypto | Scope.Scope
+  SecureRandom.SecureRandom | Scope.Scope
 > {
   const { runtimePolicy: _policy, processEnvironment, ...runtimeInput } = input;
   const context = yield* Layer.build(
