@@ -11,6 +11,7 @@ import * as Scope from "effect/Scope";
 import * as Exit from "effect/Exit";
 import * as Stream from "effect/Stream";
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import {
   EnvironmentId,
   ProviderInstanceId,
@@ -155,6 +156,7 @@ const provide = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
   effect.pipe(
     Effect.provide(
       Layer.mergeAll(
+        NodeCrypto.layer,
         IdAllocator.layer,
         McpProviderSessions.layer,
         TestProviderHost.layer().pipe(Layer.provide(NodeServices.layer)),
