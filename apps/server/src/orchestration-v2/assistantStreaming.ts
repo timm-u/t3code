@@ -206,7 +206,9 @@ export function makeAssistantStreamingFilter(
       const ready =
         event.type === "turn_item.updated" && event.turnItem.type === "reasoning"
           ? message.text
-          : boundary === -1 ? "" : message.text.slice(0, boundary);
+          : boundary === -1
+            ? ""
+            : message.text.slice(0, boundary);
       // An idle delivery may already show more than the next boundary; never shrink it. A
       // provider rewrite or truncation is not a prefix and replaces it.
       if (delivered.startsWith(ready)) return hold(scan);
