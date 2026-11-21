@@ -31,6 +31,7 @@ export const openRouterIcon: ProviderIcon = {
 export const providerClients = makeProviderClientRegistry([
   {
     driverKind: ProviderDriverKind.make("commandcode"),
+    // oxlint-disable-next-line t3code/no-untranslated-copy -- Command Code is a provider's product name.
     label: "Command Code",
     settingsSchema: CommandCodeSettings,
   },
