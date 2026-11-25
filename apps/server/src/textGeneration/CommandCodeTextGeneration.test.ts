@@ -30,6 +30,7 @@ process.stdout.write(JSON.stringify({type: 'result', subtype: 'success', finalTe
     const generation = yield* makeCommandCodeTextGeneration(settings, process.env);
     const guide = yield* generation.generateReviewGuide({
       cwd,
+      projectCwd: cwd,
       number: 1,
       title: "Test change",
       description: "Test",
